@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>adc55476-83df-499b-9d2c-c7de31ef7c93</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>src\app.py</StartupFile>
+    <StartupFile>src\main.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -40,6 +40,7 @@
     <Folder Include="src\models\__pycache__\" />
     <Folder Include="src\plugins\" />
     <Folder Include="src\presenters\" />
+    <Folder Include="src\presenters\sub_presenters\" />
     <Folder Include="src\presenters\__pycache__\" />
     <Folder Include="src\resources\" />
     <Folder Include="src\resources\icons\" />
@@ -49,6 +50,7 @@
     <Folder Include="src\utils\" />
     <Folder Include="src\utils\__pycache__\" />
     <Folder Include="src\views\" />
+    <Folder Include="src\views\dialogs\" />
     <Folder Include="src\views\panels\" />
     <Folder Include="src\views\__pycache__\" />
     <Folder Include="src\__pycache__\" />
@@ -80,7 +82,18 @@
   <ItemGroup>
     <Compile Include="src\app.py" />
     <Compile Include="src\colored_tabbar.py" />
-    <Compile Include="src\main_window.py" />
+    <Compile Include="src\main.py" />
+    <Compile Include="src\models\case_model.py" />
+    <Compile Include="src\models\file_entity.py" />
+    <Compile Include="src\presenters\import_logic.py" />
+    <Compile Include="src\presenters\sub_presenters\playback_controller.py" />
+    <Compile Include="src\presenters\__init__.py" />
+    <Compile Include="src\views\dialogs\analyzer.py" />
+    <Compile Include="src\views\dialogs\comparison.py" />
+    <Compile Include="src\views\dialogs\importer_view.py" />
+    <Compile Include="src\views\dialogs\settings.py" />
+    <Compile Include="src\views\dialogs\__init__.py" />
+    <Compile Include="src\views\main_window.py" />
     <Compile Include="src\models\config_manager.py" />
     <Compile Include="src\models\core_model.py" />
     <Compile Include="src\models\db.py" />
