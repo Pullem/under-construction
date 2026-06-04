@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>adc55476-83df-499b-9d2c-c7de31ef7c93</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>src\main.py</StartupFile>
+    <StartupFile>main.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -12,6 +12,10 @@
     <Name>under-construction</Name>
     <RootNamespace>under-construction</RootNamespace>
     <InterpreterId>MSBuild|env|$(MSBuildProjectFullPath)</InterpreterId>
+    <LaunchProvider>Standard Python launcher</LaunchProvider>
+    <EnableNativeCodeDebugging>False</EnableNativeCodeDebugging>
+    <IsWindowsApplication>False</IsWindowsApplication>
+    <CommandLineArguments>src.main.py</CommandLineArguments>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -34,90 +38,39 @@
   </ItemGroup>
   <ItemGroup>
     <Folder Include="config\" />
-    <Folder Include="logs\" />
+    <Folder Include="evidence_input\" />
     <Folder Include="src\" />
-    <Folder Include="src\models\" />
-    <Folder Include="src\models\__pycache__\" />
-    <Folder Include="src\plugins\" />
-    <Folder Include="src\presenters\" />
-    <Folder Include="src\presenters\sub_presenters\" />
-    <Folder Include="src\presenters\__pycache__\" />
-    <Folder Include="src\resources\" />
-    <Folder Include="src\resources\icons\" />
-    <Folder Include="src\services\" />
-    <Folder Include="src\services\__pycache__\" />
-    <Folder Include="src\tests\" />
-    <Folder Include="src\utils\" />
-    <Folder Include="src\utils\__pycache__\" />
-    <Folder Include="src\views\" />
-    <Folder Include="src\views\dialogs\" />
-    <Folder Include="src\views\panels\" />
-    <Folder Include="src\views\__pycache__\" />
     <Folder Include="src\__pycache__\" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="config\mariadb.ini" />
-    <Content Include="config\project.ini" />
+    <Content Include="config\projekt.ini" />
+    <Content Include="evidence_input\30fps_closedgop_N10_M1.mp4" />
+    <Content Include="evidence_input\30fps_closedgop_N10_M4.mp4" />
+    <Content Include="evidence_input\30fps_opengop_N10_M4.mp4" />
+    <Content Include="evidence_input\baby.mp4" />
+    <Content Include="evidence_input\donald_trump_deepfake.mp4" />
+    <Content Include="evidence_input\lego.mp4" />
+    <Content Include="evidence_input\namby.mp4" />
+    <Content Include="evidence_input\vfr_closedgop_N10_M1.mp4" />
+    <Content Include="evidence_input\vfr_closedgop_N10_M4.mp4" />
+    <Content Include="evidence_input\vfr_opengop_N10_M4.mp4" />
+    <Content Include="evidence_input\vid2.mp4" />
     <Content Include="LICENSE.txt" />
-    <Content Include="logs\app.log" />
     <Content Include="README.md" />
-    <Content Include="src\models\__init.py__" />
-    <Content Include="src\models\__pycache__\db.cpython-314.pyc" />
-    <Content Include="src\models\__pycache__\repositories.cpython-314.pyc" />
-    <Content Include="src\presenters\__pycache__\main_presenter.cpython-314.pyc" />
-    <Content Include="src\presenters\__pycache__\media_presenter.cpython-314.pyc" />
-    <Content Include="src\services\__pycache__\hashing_service.cpython-314.pyc" />
-    <Content Include="src\services\__pycache__\mediainfo_service.cpython-314.pyc" />
-    <Content Include="src\services\__pycache__\watchfolder_service.cpython-314.pyc" />
-    <Content Include="src\utils\__pycache__\config.cpython-314.pyc" />
-    <Content Include="src\utils\__pycache__\logging_setup.cpython-314.pyc" />
-    <Content Include="src\utils\__pycache__\threads.cpython-314.pyc" />
-    <Content Include="src\views\__pycache__\file_list_view.cpython-314.pyc" />
-    <Content Include="src\views\__pycache__\main_view.cpython-314.pyc" />
-    <Content Include="src\views\__pycache__\media_info_view.cpython-314.pyc" />
     <Content Include="src\__pycache__\colored_tabbar.cpython-314.pyc" />
     <Content Include="src\__pycache__\main_window.cpython-314.pyc" />
     <Content Include="src\__pycache__\overlay.cpython-314.pyc" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="src\app.py" />
-    <Compile Include="src\colored_tabbar.py" />
-    <Compile Include="src\main.py" />
-    <Compile Include="src\models\case_model.py" />
-    <Compile Include="src\models\file_entity.py" />
-    <Compile Include="src\presenters\import_logic.py" />
-    <Compile Include="src\presenters\sub_presenters\playback_controller.py" />
-    <Compile Include="src\presenters\__init__.py" />
-    <Compile Include="src\views\dialogs\analyzer.py" />
-    <Compile Include="src\views\dialogs\comparison.py" />
-    <Compile Include="src\views\dialogs\importer_view.py" />
-    <Compile Include="src\views\dialogs\settings.py" />
-    <Compile Include="src\views\dialogs\__init__.py" />
-    <Compile Include="src\views\main_window.py" />
-    <Compile Include="src\models\config_manager.py" />
-    <Compile Include="src\models\core_model.py" />
-    <Compile Include="src\models\db.py" />
-    <Compile Include="src\models\media_model.py" />
-    <Compile Include="src\models\repositories.py" />
+    <Compile Include="setup_db.py" />
+    <Compile Include="main.py" />
+    <Compile Include="src\model.py" />
+    <Compile Include="src\presenter.py" />
+    <Compile Include="src\utils.py" />
+    <Compile Include="src\view.py" />
     <Compile Include="src\overlay.py" />
-    <Compile Include="src\presenters\main_presenter.py" />
-    <Compile Include="src\presenters\media_presenter.py" />
-    <Compile Include="src\services\hashing_service.py" />
-    <Compile Include="src\services\mediainfo_service.py" />
-    <Compile Include="src\services\plugin_manager.py" />
-    <Compile Include="src\services\watchfolder_service.py" />
-    <Compile Include="src\utils\config.py" />
-    <Compile Include="src\utils\logging_setup.py" />
-    <Compile Include="src\utils\signals.py" />
-    <Compile Include="src\utils\threads.py" />
-    <Compile Include="src\views\file_list_view.py" />
-    <Compile Include="src\views\main_view.py" />
-    <Compile Include="src\views\media_info_view.py" />
-    <Compile Include="src\views\panels\file_explorer.py" />
-    <Compile Include="src\views\panels\media_preview.py" />
-    <Compile Include="src\views\panels\metadata_tabs.py" />
-    <Compile Include="src\views\__init__.py" />
-    <Compile Include="src\worker.py" />
+    <Compile Include="src\__init__.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in
