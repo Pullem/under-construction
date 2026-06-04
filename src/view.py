@@ -14,7 +14,7 @@ class ForensicView(QMainWindow):
 
 	def __init__(self):
 		super().__init__()
-		self.setWindowTitle("Video Forensics Analyzer PRO")
+		self.setWindowTitle("under construction")
 		self.resize(1200, 800)
 
 		# Zentrales Widget und Haupt-Layout
@@ -78,40 +78,41 @@ class ForensicView(QMainWindow):
 		"""Erstellt dynamisch Tabs basierend auf den JSON-Kategorien."""
 		self.tabs.clear()
 		
-		# Farbschema für Forensik-Kategorien
 		category_colors = {
-			"General": "#2c3e50", # Dunkelblau
-			"Video": "#c0392b",   # Dunkelrot
-			"Audio": "#27ae60",   # Grün
-			"Image": "#d35400",   # Orange
-			"Menu": "#8e44ad",    # Lila
-			"Other": "#7f8c8d"    # Grau
+			"General": "#2c3e50", "Video": "#c0392b", 
+			"Audio": "#27ae60", "Image": "#d35400", 
+			"Menu": "#8e44ad", "Other": "#7f8c8d"
 		}
 
 		for category, parameters in metadata_dict.items():
-			# Erstelle Tabelle für diesen Tab
 			table = QTableWidget(len(parameters), 2)
 			table.setHorizontalHeaderLabels(["Parameter", "Wert"])
 			table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 			table.setAlternatingRowColors(True)
 			
-			# Daten einfüllen
-			for row, (key, value) in enumerate(parameters.items()):
-				table.setItem(row, 0, QTableWidgetItem(str(key)))
-				table.setItem(row, 1, QTableWidgetItem(str(value)))
-
-			# Tab hinzufügen
-			idx = self.tabs.addTab(table, category)
+			# --- NEU: Bearbeiten global für diese Tabelle deaktivieren ---
+			table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+			# -------------------------------------------------------------
 			
-			# Farbe zuweisen
+			for row, (key, value) in enumerate(parameters.items()):
+				# Items erstellen
+				item_key = QTableWidgetItem(str(key))
+				item_val = QTableWidgetItem(str(value))
+				
+				# Doppelte Sicherheit: Das "Editable"-Flag explizit entfernen
+				item_key.setFlags(item_key.flags() & ~Qt.ItemFlag.ItemIsEditable)
+				item_val.setFlags(item_val.flags() & ~Qt.ItemFlag.ItemIsEditable)
+
+				table.setItem(row, 0, item_key)
+				table.setItem(row, 1, item_val)
+
+			idx = self.tabs.addTab(table, category)
 			bg_color = category_colors.get(category, category_colors["Other"])
 			self.tabs.tabBar().setTabTextColor(idx, QColor("white"))
 			
-			# Stylesheet für den Tab-Header
 			self.tabs.setStyleSheet(f"""
 				QTabBar::tab:selected {{ background: {bg_color}; color: white; font-weight: bold; }}
 				QTabBar::tab {{ padding: 8px 15px; }}
 			""")
 			
-			# Button-Enum Fix (PyQt6 kompatibel)
 			self.tabs.tabBar().setTabButton(idx, QTabBar.ButtonPosition.LeftSide, None)
