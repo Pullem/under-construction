@@ -45,17 +45,6 @@
   <ItemGroup>
     <Content Include="config\mariadb.ini" />
     <Content Include="config\projekt.ini" />
-    <Content Include="evidence_input\30fps_closedgop_N10_M1.mp4" />
-    <Content Include="evidence_input\30fps_closedgop_N10_M4.mp4" />
-    <Content Include="evidence_input\30fps_opengop_N10_M4.mp4" />
-    <Content Include="evidence_input\baby.mp4" />
-    <Content Include="evidence_input\donald_trump_deepfake.mp4" />
-    <Content Include="evidence_input\lego.mp4" />
-    <Content Include="evidence_input\namby.mp4" />
-    <Content Include="evidence_input\vfr_closedgop_N10_M1.mp4" />
-    <Content Include="evidence_input\vfr_closedgop_N10_M4.mp4" />
-    <Content Include="evidence_input\vfr_opengop_N10_M4.mp4" />
-    <Content Include="evidence_input\vid2.mp4" />
     <Content Include="LICENSE.txt" />
     <Content Include="README.md" />
     <Content Include="src\__pycache__\colored_tabbar.cpython-314.pyc" />
