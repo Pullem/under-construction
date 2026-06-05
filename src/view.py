@@ -61,14 +61,84 @@ class ForensicView(QMainWindow):
 	def apply_dark_style(self):
 		style = """
 			QMainWindow { background-color: #1a1a1a; }
-			QLabel { color: #ccc; }
-			QListWidget { background-color: #252526; color: #eee; border: none; }
-			QListWidget::item:selected { background-color: #0e639c; }
-			QPushButton { background-color: #333; color: white; border: 1px solid #555; padding: 8px; }
-			QPushButton:hover { background-color: #444; }
-			QLineEdit { background-color: #2d2d2d; color: white; border: 1px solid #444; }
-			QHeaderView::section { background-color: #333; color: white; border: 1px solid #111; }
-			QTableWidget { background-color: #1e1e1e; color: #ddd; gridline-color: #333; }
+			QLabel { color: #ccc; font-family: 'Segoe UI', sans-serif; }
+			
+			/* Dateiliste */
+			QListWidget { 
+				background-color: #252526; 
+				color: #eee; 
+				border: 1px solid #333; 
+				outline: none;
+			}
+			QListWidget::item { padding: 8px; border-bottom: 1px solid #2d2d2d; }
+			QListWidget::item:selected { 
+				background-color: #094771; 
+				color: white; 
+				border-left: 4px solid #0e639c; 
+			}
+
+			/* Buttons & Inputs */
+			QPushButton { 
+				background-color: #333; 
+				color: white; 
+				border: 1px solid #555; 
+				padding: 10px; 
+				font-weight: bold;
+			}
+			QPushButton:hover { background-color: #444; border-color: #666; }
+			QLineEdit { 
+				background-color: #2d2d2d; 
+				color: white; 
+				border: 1px solid #444; 
+				padding: 6px; 
+			}
+
+			/* TAB SYSTEM - HIER SIND DIE ÄNDERUNGEN */
+			QTabWidget::pane { 
+				border: 1px solid #333; 
+				top: -1px; 
+				background-color: #1e1e1e; 
+			}
+			
+			QTabBar::tab {
+				background-color: #2d2d2d;
+				color: #888;
+				padding: 12px 25px;
+				border: 1px solid #1a1a1a;
+				border-bottom: none;
+				min-width: 100px;
+			}
+
+			/* Der aktive Tab: Hellere Farbe und Akzent-Linie oben */
+			QTabBar::tab:selected {
+				background-color: #1e1e1e; /* Gleiche Farbe wie das Panel darunter */
+				color: #ffffff;            /* Strahlend weißer Text */
+				border-top: 3px solid #0e639c; /* Kräftiger blauer Balken oben */
+				border-left: 1px solid #333;
+				border-right: 1px solid #1a1a1a;
+				margin-top: -2px;          /* Tab wirkt leicht "angehoben" */
+			}
+
+			QTabBar::tab:hover:not(:selected) {
+				background-color: #353535;
+				color: #ccc;
+			}
+
+			/* Tabellen-Optik */
+			QHeaderView::section { 
+				background-color: #2d2d2d; 
+				color: #aaa; 
+				padding: 5px; 
+				border: 1px solid #111; 
+				font-weight: bold;
+			}
+			QTableWidget { 
+				background-color: #1e1e1e; 
+				color: #ddd; 
+				gridline-color: #2d2d2d; 
+				border: none;
+				alternate-background-color: #252526;
+			}
 		"""
 		self.setStyleSheet(style)
 
