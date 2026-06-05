@@ -57,6 +57,7 @@
     <Compile Include="check_gpu.py" />
     <Compile Include="setup_db.py" />
     <Compile Include="main.py" />
+    <Compile Include="src\compare_window.py" />
     <Compile Include="src\model.py" />
     <Compile Include="src\presenter.py" />
     <Compile Include="src\utils.py" />

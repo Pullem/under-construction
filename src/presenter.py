@@ -1,55 +1,75 @@
 import os
 import json
-from PyQt6.QtCore import QThreadPool
+from PyQt6.QtCore import QThreadPool, Qt
+from PyQt6.QtWidgets import QMenu
 from .worker import AnalysisWorker
+from .compare_window import ComparisonWindow
 
 class ForensicPresenter:
 	def __init__(self, model, view):
 		self.model = model
 		self.view = view
 		self.threadpool = QThreadPool()
-		print(f"System bereit. {self.threadpool.maxThreadCount()} Threads verfügbar.")
+		
+		# PERSISTENTER FOKUS-SPEICHER
+		# Hier merken wir uns, welchen Tab der User zuletzt aktiv hatte
+		self.last_tab_focus = "General" 
+		
+		# Speicher für den Vergleich (Dateiname -> Metadaten)
+		self.comparison_data = {}
+		self.comparison_window = None
 
+		# --- SIGNAL-SLOT VERBINDUNGEN ---
 		self.view.start_requested.connect(self.handle_scan)
 		self.view.search_changed.connect(self.handle_search)
 		self.view.file_selected.connect(self.load_file_details)
+		
+		# Überwachung von Tab-Wechseln durch den User
+		self.view.tabs.currentChanged.connect(self.track_tab_change)
+
+		# Rechtsklick-Menü für die Dateiliste aktivieren
+		self.view.file_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+		self.view.file_list.customContextMenuRequested.connect(self.show_context_menu)
+
+		print(f"System bereit. {self.threadpool.maxThreadCount()} Threads verfügbar.")
 		self.refresh_ui_list()
 
+	def track_tab_change(self, index):
+		"""Speichert den Namen des Tabs, den der User gerade angeklickt hat."""
+		name = self.view.get_active_tab_name()
+		if name: 
+			self.last_tab_focus = name
+
 	def handle_scan(self):
+		"""Startet den Scan des Watchfolders."""
 		folder = self.model.proj_config.get('watchfolder', './evidence_input')
 		if not os.path.exists(folder):
-			print(f"FEHLER: Watchfolder {folder} existiert nicht!")
+			print(f"FEHLER: Ordner {folder} nicht gefunden.")
 			return
 			
-		files = [f for f in os.listdir(folder) if f.lower().endswith(('.mp4', '.mov', '.jpg'))]
+		files = [f for f in os.listdir(folder) if f.lower().endswith(('.mp4', '.mov', '.jpg', '.png'))]
 		print(f"Scan gestartet... {len(files)} Dateien gefunden.")
 
 		for f in files:
 			path = os.path.join(folder, f)
 			worker = AnalysisWorker(self.model, path)
-			
-			# Verbinde Signale
 			worker.signals.result.connect(self.on_analysis_finished)
 			worker.signals.error.connect(self.on_analysis_error)
-			
 			self.threadpool.start(worker)
 
 	def on_analysis_finished(self, data):
-		print(f"✅ Datei verarbeitet: {data['file_name']}")
+		"""Wird aufgerufen, wenn ein Worker fertig ist."""
+		print(f"✅ Analyse abgeschlossen: {data['file_name']}")
 		self.refresh_ui_list()
 
 	def on_analysis_error(self, error_msg):
-		# Das ist entscheidend: Ohne das siehst du keine Thread-Fehler!
 		print(f"❌ THREAD-FEHLER: {error_msg}")
 
 	def refresh_ui_list(self):
-		"""Aktualisiert die Liste nur, wenn die DB bereit ist."""
+		"""Lädt die Liste der Dateien aus der DB in die GUI."""
 		conn = self.model.get_connection()
-		if not conn:
-			# Falls keine Verbindung möglich ist, einfach abbrechen 
-			# (passiert beim ersten Setup)
-			return
-			
+		if not conn: return
+		
 		try:
 			cur = conn.cursor()
 			cur.execute("SELECT file_name FROM media_files ORDER BY created_at DESC")
@@ -60,7 +80,12 @@ class ForensicPresenter:
 			print(f"UI-Refresh fehlgeschlagen: {e}")
 
 	def load_file_details(self, file_name):
+		"""Lädt Details einer Datei und behält den Tab-Fokus stur bei."""
 		if not file_name: return
+		
+		# Wir greifen auf den persistenten Fokus-Speicher zu
+		target_tab = self.last_tab_focus
+		
 		try:
 			conn = self.model.get_connection()
 			cur = conn.cursor(dictionary=True)
@@ -72,17 +97,74 @@ class ForensicPresenter:
 				mi_data = json.loads(row['metadata'])
 				if row['exif_metadata']:
 					mi_data["EXIF Deep Dive"] = json.loads(row['exif_metadata'])
-				self.view.display_metadata(mi_data)
 				
+				# --- WICHTIG: SIGNALE BLOCKIEREN ---
+				# Während wir die Tabs löschen und neu aufbauen, darf track_tab_change 
+				# nicht feuern, sonst würde unser 'last_tab_focus' auf None gesetzt.
+				self.view.tabs.blockSignals(True)
+				
+				self.view.display_metadata(mi_data)
+				self.view.set_active_tab_by_name(target_tab)
+				
+				self.view.tabs.blockSignals(False)
+				
+				# Thumbnail laden
 				t_path = self.model.get_thumbnail(row['file_path'])
 				self.view.set_thumbnail(t_path)
 		except Exception as e:
-			print(f"Detail-Laden fehlgeschlagen: {e}")
+			print(f"Fehler beim Laden der Dateidetails: {e}")
+			if hasattr(self.view, 'tabs'): self.view.tabs.blockSignals(False)
 
-	def handle_search(self, q):
-		self.view.apply_row_filter(q)
-		if len(q) > 1:
-			res = self.model.search_db(q)
-			self.view.update_file_list([r['file_name'] for r in res])
-		else:
-			self.refresh_ui_list()
+	def handle_search(self, query):
+		"""Filtert die Dateiliste in Echtzeit."""
+		self.view.apply_row_filter(query)
+
+	# --- VERGLEICHS-LOGIK ---
+
+	def show_context_menu(self, position):
+		"""Erzeugt das Rechtsklick-Menü in der Dateiliste."""
+		item = self.view.file_list.itemAt(position)
+		if not item: return
+
+		menu = QMenu()
+		add_action = menu.addAction(f"'{item.text()}' zum Vergleich hinzufügen")
+		open_action = menu.addAction("Vergleichs-Fenster öffnen")
+		clear_action = menu.addAction("Vergleichs-Liste leeren")
+		
+		action = menu.exec(self.view.file_list.mapToGlobal(position))
+		
+		if action == add_action:
+			self.add_to_comparison(item.text())
+		elif action == open_action:
+			self.open_comparison_view()
+		elif action == clear_action:
+			self.comparison_data.clear()
+			print("Vergleichsliste geleert.")
+
+	def add_to_comparison(self, file_name):
+		"""Holt die Daten aus der DB und legt sie in die Vergleichs-Queue."""
+		try:
+			conn = self.model.get_connection()
+			cur = conn.cursor(dictionary=True)
+			cur.execute("SELECT metadata, exif_metadata FROM media_files WHERE file_name = ?", (file_name,))
+			row = cur.fetchone()
+			conn.close()
+
+			if row:
+				data = json.loads(row['metadata'])
+				if row['exif_metadata']:
+					data["EXIF"] = json.loads(row['exif_metadata'])
+				
+				self.comparison_data[file_name] = data
+				print(f"'{file_name}' vorgemerkt. ({len(self.comparison_data)} Dateien in Liste).")
+		except Exception as e:
+			print(f"Fehler beim Hinzufügen zum Vergleich: {e}")
+
+	def open_comparison_view(self):
+		"""Öffnet das separate Vergleichsfenster."""
+		if not self.comparison_data:
+			print("Keine Dateien ausgewählt!")
+			return
+			
+		self.comparison_window = ComparisonWindow(self.comparison_data)
+		self.comparison_window.show()
