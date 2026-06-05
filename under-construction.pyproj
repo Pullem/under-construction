@@ -161,7 +161,6 @@
     <Folder Include="src\__pycache__\" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="config\mariadb.ini" />
     <Content Include="config\projekt.ini" />
     <Content Include="exiftool.exe" />
     <Content Include="exiftool_files\exiftool.pl" />
