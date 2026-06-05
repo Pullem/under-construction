@@ -34,16 +34,28 @@ class AnalysisWorker(QRunnable):
 			print(f"[Worker] MediaInfo fertig.")
 
 			# SCHRITT 3: ExifTool
-			print(f"[Worker] ExifTool Deep Dive (Suche nach Binary)...")
+			print(f"[Worker] ExifTool Deep Dive (Expliziter Pfad-Check)...")
 			exif_data = {}
+			
+			# Wir definieren den Pfad absolut
+			# Option A: Die Datei liegt direkt im Projektordner
+			exif_path = os.path.abspath("exiftool.exe") 
+			
+			# Falls das nicht klappt, nehmen wir deinen Installationspfad:
+			if not os.path.exists(exif_path):
+				exif_path = r"D:\Applikationen\exiftool-13.55_64\exiftool.exe"
+
 			try:
-				# Hier könnte es hängen, wenn exiftool.exe nicht reagiert
-				with exiftool.ExifToolHelper() as et:
+				# Wir übergeben den Pfad direkt an den Helper
+				with exiftool.ExifToolHelper(executable=exif_path) as et:
+					print(f"[Worker] ExifTool Prozess gestartet...")
 					metadata = et.get_metadata(self.filepath)
-					exif_data = metadata[0] if metadata else {}
+					if metadata:
+						exif_data = metadata[0]
 				print(f"[Worker] ExifTool fertig ({len(exif_data)} Tags).")
 			except Exception as e:
-				print(f"[Worker] ExifTool übersprungen/Fehler: {e}")
+				print(f"[Worker] ⚠️ ExifTool Problem: {e}")
+				print(f"[Worker] Genutzter Pfad: {exif_path}")
 
 			# SCHRITT 4: Thumbnail (GPU/OpenCV)
 			print(f"[Worker] Generiere Thumbnail...")
