@@ -1,11 +1,10 @@
-import os # Für check in set_thumbnail
-
+import os
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-							 QPushButton, QLineEdit, QTabWidget, QTableWidget, 
-							 QTableWidgetItem, QHeaderView, QLabel, QTabBar,
-							 QListWidget, QSplitter)
+							 QListWidget, QTableWidget, QTableWidgetItem, 
+							 QTabWidget, QTabBar, QLabel, QLineEdit, 
+							 QPushButton, QHeaderView)
 from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QColor, QPixmap
+from PyQt6.QtGui import QPixmap, QColor, QIcon, QPainter
 
 class ForensicView(QMainWindow):
 	start_requested = pyqtSignal()
@@ -15,107 +14,116 @@ class ForensicView(QMainWindow):
 
 	def __init__(self):
 		super().__init__()
-		self.setWindowTitle("Video Forensics Analyzer PRO")
-		self.resize(1300, 850)
+		self.setWindowTitle("Video Forensic Lab - Analyzer")
+		self.resize(1200, 800)
+		self.setup_ui()
+		self.apply_dark_style()
 
+	def setup_ui(self):
+		main_layout = QHBoxLayout()
 		central_widget = QWidget()
+		central_widget.setLayout(main_layout)
 		self.setCentralWidget(central_widget)
-		main_layout = QVBoxLayout(central_widget)
 
-		# Toolbar
-		top_bar = QHBoxLayout()
-		self.btn_config = QPushButton("⚙ Konfiguration")
-		self.btn_start = QPushButton("🚀 Watchfolder Scan")
-		self.search_input = QLineEdit()
-		self.search_input.setPlaceholderText("Metadaten-Filter...")
-		self.search_input.setClearButtonEnabled(True)
+		# --- LINKS ---
+		left_panel = QVBoxLayout()
+		self.search_bar = QLineEdit()
+		self.search_bar.setPlaceholderText("Suche...")
+		self.file_list = QListWidget()
+		self.btn_scan = QPushButton("Watchfolder Scan")
 		
-		top_bar.addWidget(self.btn_config)
-		top_bar.addWidget(self.btn_start)
-		top_bar.addStretch()
-		top_bar.addWidget(QLabel("Filter:"))
-		top_bar.addWidget(self.search_input)
-		main_layout.addLayout(top_bar)
+		left_panel.addWidget(QLabel("📂 Beweisstücke"))
+		left_panel.addWidget(self.search_bar)
+		left_panel.addWidget(self.file_list)
+		left_panel.addWidget(self.btn_scan)
 
-		# Main Splitter
-		self.splitter = QSplitter(Qt.Orientation.Horizontal)
-		
-		# Links: Sidebar mit Thumbnail und Liste
-		sidebar = QWidget()
-		sidebar_layout = QVBoxLayout(sidebar)
-		
-		self.thumb_label = QLabel("Keine Vorschau")
+		# --- RECHTS ---
+		right_panel = QVBoxLayout()
+		self.thumb_label = QLabel("Vorschau")
 		self.thumb_label.setFixedSize(320, 180)
 		self.thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-		self.thumb_label.setStyleSheet("border: 2px solid #333; background: #000; color: #555;")
-		sidebar_layout.addWidget(self.thumb_label)
+		self.thumb_label.setStyleSheet("border: 2px solid #333; background: black;")
 		
-		sidebar_layout.addWidget(QLabel("Dateiliste:"))
-		self.file_list = QListWidget()
-		sidebar_layout.addWidget(self.file_list)
-		self.splitter.addWidget(sidebar)
-
-		# Rechts: Metadaten
 		self.tabs = QTabWidget()
 		self.tabs.setDocumentMode(True)
-		self.splitter.addWidget(self.tabs)
 		
-		self.splitter.setStretchFactor(1, 4)
-		main_layout.addWidget(self.splitter)
+		right_panel.addWidget(self.thumb_label, alignment=Qt.AlignmentFlag.AlignCenter)
+		right_panel.addWidget(self.tabs)
 
-		# Signals
-		self.btn_start.clicked.connect(self.start_requested.emit)
-		self.btn_config.clicked.connect(self.config_requested.emit)
-		self.search_input.textChanged.connect(self.search_changed.emit)
-		self.file_list.currentTextChanged.connect(self.file_selected.emit)
+		main_layout.addLayout(left_panel, 1)
+		main_layout.addLayout(right_panel, 3)
 
-	def set_thumbnail(self, path):
-		if path and os.path.exists(path):
-			pixmap = QPixmap(path)
-			self.thumb_label.setPixmap(pixmap.scaled(self.thumb_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-		else:
-			self.thumb_label.clear()
-			self.thumb_label.setText("Keine Vorschau")
+		# Signale
+		self.btn_scan.clicked.connect(self.start_requested.emit)
+		self.search_bar.textChanged.connect(self.search_changed.emit)
+		self.file_list.itemClicked.connect(lambda item: self.file_selected.emit(item.text()))
 
-	def update_file_list(self, files):
-		self.file_list.clear()
-		if files: self.file_list.addItems(files)
+	def apply_dark_style(self):
+		style = """
+			QMainWindow { background-color: #1a1a1a; }
+			QLabel { color: #ccc; }
+			QListWidget { background-color: #252526; color: #eee; border: none; }
+			QListWidget::item:selected { background-color: #0e639c; }
+			QPushButton { background-color: #333; color: white; border: 1px solid #555; padding: 8px; }
+			QPushButton:hover { background-color: #444; }
+			QLineEdit { background-color: #2d2d2d; color: white; border: 1px solid #444; }
+			QHeaderView::section { background-color: #333; color: white; border: 1px solid #111; }
+			QTableWidget { background-color: #1e1e1e; color: #ddd; gridline-color: #333; }
+		"""
+		self.setStyleSheet(style)
+
+	def create_color_icon(self, hex_color):
+		"""Erstellt ein kleines quadratisches Icon in der gewünschten Farbe."""
+		pixmap = QPixmap(12, 12)
+		pixmap.fill(QColor(hex_color))
+		return QIcon(pixmap)
 
 	def display_metadata(self, metadata_dict):
 		self.tabs.clear()
-		colors = {"General": "#2c3e50", "Video": "#c0392b", "Audio": "#27ae60", "Image": "#d35400", "Other": "#7f8c8d"}
+		
+		# Farbschema Definition
+		colors = {
+			"General": "#4FC3F7",       # Hellblau
+			"Video": "#29B6F6",         # Blau
+			"Audio": "#66BB6A",         # Grün
+			"EXIF Deep Dive": "#FF7043", # Forensik-Orange
+			"Other": "#9E9E9E"          # Grau
+		}
 
-		for cat, params in metadata_dict.items():
+		for i, (category, params) in enumerate(metadata_dict.items()):
+			if not isinstance(params, dict): continue
+			
 			table = QTableWidget(len(params), 2)
 			table.setHorizontalHeaderLabels(["Parameter", "Wert"])
 			table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-			table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 			
-			for row, (k, v) in enumerate(params.items()):
-				ik, iv = QTableWidgetItem(str(k)), QTableWidgetItem(str(v))
-				ik.setFlags(ik.flags() & ~Qt.ItemFlag.ItemIsEditable)
-				iv.setFlags(iv.flags() & ~Qt.ItemFlag.ItemIsEditable)
-				table.setItem(row, 0, ik)
-				table.setItem(row, 1, iv)
+			for row, (key, value) in enumerate(params.items()):
+				table.setItem(row, 0, QTableWidgetItem(str(key)))
+				table.setItem(row, 1, QTableWidgetItem(str(value)))
 
-			idx = self.tabs.addTab(table, cat)
-			col = colors.get(cat, colors["Other"])
-			self.tabs.tabBar().setTabTextColor(idx, QColor("white"))
-			self.tabs.setStyleSheet(f"QTabBar::tab:selected {{ background: {col}; color: white; font-weight: bold; }}")
-			self.tabs.tabBar().setTabButton(idx, QTabBar.ButtonPosition.LeftSide, None)
+			# Tab mit Icon und Text hinzufügen
+			color_hex = colors.get(category, colors["Other"])
+			self.tabs.addTab(table, category)
+			
+			# --- DIE FARB-MAGIE ---
+			# 1. Kleines farbiges Quadrat links neben den Text
+			self.tabs.setTabIcon(i, self.create_color_icon(color_hex))
+			
+			# 2. Den Text selbst in der Farbe einfärben
+			self.tabs.tabBar().setTabTextColor(i, QColor(color_hex))
 
-		self.apply_row_filter(self.search_input.text())
+	def set_thumbnail(self, path):
+		if path and os.path.exists(path):
+			pix = QPixmap(path)
+			self.thumb_label.setPixmap(pix.scaled(320, 180, Qt.AspectRatioMode.KeepAspectRatio))
+		else:
+			self.thumb_label.setText("Vorschau")
+
+	def update_file_list(self, files):
+		self.file_list.clear()
+		self.file_list.addItems(files)
 
 	def apply_row_filter(self, query):
-		query = query.lower()
-		for i in range(self.tabs.count()):
-			table = self.tabs.widget(i)
-			if isinstance(table, QTableWidget):
-				hits = 0
-				for r in range(table.rowCount()):
-					match = query in table.item(r, 0).text().lower() or query in table.item(r, 1).text().lower()
-					table.setRowHidden(r, not match)
-					if match: hits += 1
-				orig = self.tabs.tabText(i).split(" (")[0]
-				self.tabs.setTabText(i, f"{orig} ({hits})" if query else orig)
-
+		for i in range(self.file_list.count()):
+			item = self.file_list.item(i)
+			item.setHidden(query.lower() not in item.text().lower())
