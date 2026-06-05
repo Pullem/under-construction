@@ -45,7 +45,10 @@
   <ItemGroup>
     <Content Include="config\mariadb.ini" />
     <Content Include="config\projekt.ini" />
+    <Content Include="exiftool.exe" />
+    <Content Include="ffmpeg.exe" />
     <Content Include="LICENSE.txt" />
+    <Content Include="MediaInfo.exe" />
     <Content Include="README.md" />
     <Content Include="src\__pycache__\colored_tabbar.cpython-314.pyc" />
     <Content Include="src\__pycache__\main_window.cpython-314.pyc" />
@@ -60,6 +63,7 @@
     <Compile Include="src\utils.py" />
     <Compile Include="src\view.py" />
     <Compile Include="src\overlay.py" />
+    <Compile Include="src\worker.py" />
     <Compile Include="src\__init__.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
