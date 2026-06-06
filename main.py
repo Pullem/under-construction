@@ -1,6 +1,8 @@
-import sys
+import sys, os
+
 from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox, QLineEdit
 
+from configparser import ConfigParser
 from src.launcher import CaseLauncher
 from src.model import ForensicModel
 from src.view import ForensicView
@@ -8,28 +10,15 @@ from src.presenter import ForensicPresenter
 
 
 def main():
-	# QApplication starten
 	app = QApplication(sys.argv)
 
 	# ---------------------------------------------------------
-	# 1) LAUNCHER STARTEN
-	# ---------------------------------------------------------
-	launcher = CaseLauncher()
-	if launcher.exec() != launcher.DialogCode.Accepted:
-		return  # User hat abgebrochen
-
-	case_id = launcher.selected_case_id
-	if not case_id:
-		return
-
-	# ---------------------------------------------------------
-	# 2) MODEL LADEN (Fallbasiert)
+	# 0) MODEL LADEN (für DB-Setup)
 	# ---------------------------------------------------------
 	model = ForensicModel()
-	model.load_case(case_id)
 
 	# ---------------------------------------------------------
-	# 3) DB-SETUP (nur wenn mariadb.ini fehlt)
+	# 1) DB-SETUP (wenn mariadb.ini fehlt)
 	# ---------------------------------------------------------
 	if not model.db_config.get('password'):
 		root_pw, ok_root = QInputDialog.getText(
@@ -64,7 +53,64 @@ def main():
 			return
 
 	# ---------------------------------------------------------
-	# 4) PRESENTER STARTEN
+	# 1b) Projekt-Speicherort abfragen, wenn projekt.ini fehlt
+	# ---------------------------------------------------------
+	if not os.path.exists("config/project.ini"):
+		from PyQt6.QtWidgets import QFileDialog
+		from configparser import ConfigParser
+
+		QMessageBox.information(
+			None,
+			"Projekt-Speicherort",
+			"Bitte wählen Sie den Standard-Speicherort für alle Fälle aus."
+		)
+
+		folder = QFileDialog.getExistingDirectory(
+			None,
+			"Speicherort für Fälle auswählen"
+		)
+
+		if not folder:
+			QMessageBox.critical(
+				None,
+				"Abbruch",
+				"Es wurde kein Speicherort gewählt. Programm wird beendet."
+			)
+			return
+
+		parser = ConfigParser()
+		parser.add_section("settings")
+		parser.set("settings", "case_root", folder)
+
+		with open("config/project.ini", "w") as f:
+			parser.write(f)
+
+		QMessageBox.information(
+			None,
+			"Gespeichert",
+			f"Standard-Speicherort wurde gesetzt:\n{folder}"
+		)
+
+
+
+	# ---------------------------------------------------------
+	# 2) LAUNCHER STARTEN (DB ist jetzt garantiert vorhanden)
+	# ---------------------------------------------------------
+	launcher = CaseLauncher()
+	if launcher.exec() != launcher.DialogCode.Accepted:
+		return
+
+	case_id = launcher.selected_case_id
+	if not case_id:
+		return
+
+	# ---------------------------------------------------------
+	# 3) FALL LADEN
+	# ---------------------------------------------------------
+	model.load_case(case_id)
+
+	# ---------------------------------------------------------
+	# 4) GUI STARTEN
 	# ---------------------------------------------------------
 	try:
 		view = ForensicView()

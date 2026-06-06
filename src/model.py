@@ -15,7 +15,7 @@ class ForensicModel:
 
 		# Pfade zu den Config-Dateien
 		self.db_config_path = 'config/mariadb.ini'
-		self.proj_config_path = 'config/projekt.ini'
+		self.proj_config_path = 'config/project.ini'
 
 		# interne Config-Strukturen
 		self.db_config = {}
@@ -24,6 +24,7 @@ class ForensicModel:
 		# aktueller Fall
 		self.current_case = None
 		self.current_case_id = None
+		self.current_case_path = None
 
 		# Configs laden
 		self.load_configs()
@@ -36,7 +37,7 @@ class ForensicModel:
 	# CONFIG LADEN
 	# ---------------------------------------------------------
 	def load_configs(self):
-		"""Lädt mariadb.ini und projekt.ini. Erstellt config-Ordner falls nötig."""
+		"""Lädt mariadb.ini und project.ini. Erstellt config-Ordner falls nötig."""
 		if not os.path.exists('config'):
 			os.makedirs('config')
 
@@ -49,18 +50,19 @@ class ForensicModel:
 		else:
 			self.db_config = {}
 
-		# --- projekt.ini ---
+		# --- project.ini ---
 		parser = ConfigParser()
 		if os.path.exists(self.proj_config_path):
 			parser.read(self.proj_config_path)
 			if parser.has_section('settings'):
 				self.proj_config = dict(parser.items('settings'))
 
-		# Standardwerte
+		# Standardwerte, falls project.ini leer ist
 		if not self.proj_config:
 			self.proj_config = {
 				'project_name': 'Default_Case',
-				'watchfolder': './evidence_input'
+				'watchfolder': './evidence_input',
+				'case_root': './cases'   # <--- Patch 2
 			}
 
 	# ---------------------------------------------------------
@@ -160,7 +162,7 @@ class ForensicModel:
 			conn.close()
 
 	def create_case(self, name, description):
-		"""Legt einen neuen Fall an."""
+		"""Legt einen neuen Fall an und erzeugt den Ordnerbaum."""
 		conn = self.get_connection()
 		if not conn:
 			raise Exception("Keine DB-Verbindung")
@@ -172,10 +174,25 @@ class ForensicModel:
 				(name, description)
 			)
 			conn.commit()
-			return cur.lastrowid
+			case_id = cur.lastrowid   # <--- WICHTIG
 		finally:
 			conn.close()
 
-	def load_case(self, case_id):
-		"""Lädt einen Fall und speichert ihn im Model."""
-		conn = self.get_connection()
+		# Ordnerbaum erzeugen
+		case_root = self.proj_config.get("case_root", "./cases")
+		case_path = Path(case_root) / name
+
+		folders = [
+			case_path / "evidence_input",
+			case_path / "analyze_media",
+			case_path / "exports",
+			case_path / "reports",
+			case_path / "thumbnails",
+			case_path / "recovered",
+			case_path / "logs"
+		]
+
+		for folder in folders:
+			folder.mkdir(parents=True, exist_ok=True)
+
+		return case_id
