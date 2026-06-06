@@ -11,8 +11,40 @@ class ForensicPresenter:
 		self.view = view
 		self.threadpool = QThreadPool()
 		
+		# ---------------------------------------------------------
+		# PATCH: Fallpfad + Unterordner aus dem Model übernehmen
+		# ---------------------------------------------------------
+		self.case_path = model.current_case_path
+
+		# Unterordner definieren
+		self.folder_evidence = self.case_path / "evidence_input"
+		self.folder_analyze = self.case_path / "analyze_media"
+		self.folder_exports = self.case_path / "exports"
+		self.folder_reports = self.case_path / "reports"
+		self.folder_thumbnails = self.case_path / "thumbnails"
+		self.folder_recovered = self.case_path / "recovered"
+		self.folder_logs = self.case_path / "logs"
+
+		# Ordner sicherstellen (falls manuell gelöscht)
+		for folder in [
+			self.folder_evidence,
+			self.folder_analyze,
+			self.folder_exports,
+			self.folder_reports,
+			self.folder_thumbnails,
+			self.folder_recovered,
+			self.folder_logs
+		]:
+			folder.mkdir(parents=True, exist_ok=True)
+		
+		# ---------------------------------------------------------
+		# PATCH: Fenstertitel mit Fallname setzen
+		# ---------------------------------------------------------
+		if self.model.current_case:
+			case_name = self.model.current_case.get("project_name", "Unbekannter Fall")
+			self.view.setWindowTitle(f"Forensic Analyzer – {case_name}")
+
 		# PERSISTENTER FOKUS-SPEICHER
-		# Hier merken wir uns, welchen Tab der User zuletzt aktiv hatte
 		self.last_tab_focus = "General" 
 		
 		# Speicher für den Vergleich (Dateiname -> Metadaten)
@@ -42,7 +74,7 @@ class ForensicPresenter:
 
 	def handle_scan(self):
 		"""Startet den Scan des Watchfolders."""
-		folder = self.model.proj_config.get('watchfolder', './evidence_input')
+		folder = self.folder_evidence  # <-- PATCH: Fallbezogener Watchfolder
 		if not os.path.exists(folder):
 			print(f"FEHLER: Ordner {folder} nicht gefunden.")
 			return
@@ -83,7 +115,6 @@ class ForensicPresenter:
 		"""Lädt Details einer Datei und behält den Tab-Fokus stur bei."""
 		if not file_name: return
 		
-		# Wir greifen auf den persistenten Fokus-Speicher zu
 		target_tab = self.last_tab_focus
 		
 		try:
@@ -98,14 +129,9 @@ class ForensicPresenter:
 				if row['exif_metadata']:
 					mi_data["EXIF Deep Dive"] = json.loads(row['exif_metadata'])
 				
-				# --- WICHTIG: SIGNALE BLOCKIEREN ---
-				# Während wir die Tabs löschen und neu aufbauen, darf track_tab_change 
-				# nicht feuern, sonst würde unser 'last_tab_focus' auf None gesetzt.
 				self.view.tabs.blockSignals(True)
-				
 				self.view.display_metadata(mi_data)
 				self.view.set_active_tab_by_name(target_tab)
-				
 				self.view.tabs.blockSignals(False)
 				
 				# Thumbnail laden
@@ -113,7 +139,8 @@ class ForensicPresenter:
 				self.view.set_thumbnail(t_path)
 		except Exception as e:
 			print(f"Fehler beim Laden der Dateidetails: {e}")
-			if hasattr(self.view, 'tabs'): self.view.tabs.blockSignals(False)
+			if hasattr(self.view, 'tabs'): 
+				self.view.tabs.blockSignals(False)
 
 	def handle_search(self, query):
 		"""Filtert die Dateiliste in Echtzeit."""

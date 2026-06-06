@@ -10,14 +10,13 @@ from pathlib import Path
 
 class ForensicModel:
 	def __init__(self, project_path=None):
-		# Projektpfad (optional, aber nicht mehr für DB genutzt)
 		self.project_path = project_path
 
-		# Pfade zu den Config-Dateien
+		# Config-Dateien
 		self.db_config_path = 'config/mariadb.ini'
 		self.proj_config_path = 'config/project.ini'
 
-		# interne Config-Strukturen
+		# interne Configs
 		self.db_config = {}
 		self.proj_config = {}
 
@@ -29,7 +28,6 @@ class ForensicModel:
 		# Configs laden
 		self.load_configs()
 
-		# Projektpfad (optional)
 		if self.project_path:
 			self.load_project(self.project_path)
 
@@ -37,11 +35,10 @@ class ForensicModel:
 	# CONFIG LADEN
 	# ---------------------------------------------------------
 	def load_configs(self):
-		"""Lädt mariadb.ini und project.ini. Erstellt config-Ordner falls nötig."""
 		if not os.path.exists('config'):
 			os.makedirs('config')
 
-		# --- mariadb.ini ---
+		# mariadb.ini
 		parser = ConfigParser()
 		if os.path.exists(self.db_config_path):
 			parser.read(self.db_config_path)
@@ -50,26 +47,25 @@ class ForensicModel:
 		else:
 			self.db_config = {}
 
-		# --- project.ini ---
+		# project.ini
 		parser = ConfigParser()
 		if os.path.exists(self.proj_config_path):
 			parser.read(self.proj_config_path)
 			if parser.has_section('settings'):
 				self.proj_config = dict(parser.items('settings'))
 
-		# Standardwerte, falls project.ini leer ist
+		# Standardwerte
 		if not self.proj_config:
 			self.proj_config = {
 				'project_name': 'Default_Case',
 				'watchfolder': './evidence_input',
-				'case_root': './cases'   # <--- Patch 2
+				'case_root': './cases'
 			}
 
 	# ---------------------------------------------------------
 	# DB VERBINDUNG
 	# ---------------------------------------------------------
 	def get_connection(self):
-		"""Gibt eine aktive MariaDB-Verbindung zurück oder None."""
 		if not self.db_config.get('password'):
 			return None
 
@@ -86,23 +82,21 @@ class ForensicModel:
 			return None
 
 	# ---------------------------------------------------------
-	# ROOT-SETUP (DB anlegen, User anlegen, mariadb.ini schreiben)
+	# ROOT-SETUP
 	# ---------------------------------------------------------
 	def initial_root_setup(self, root_password, user_password_to_set):
 		conn = mariadb.connect(host="localhost", user="root", password=root_password)
 		cur = conn.cursor()
 
-		# 1. DB & User
 		cur.execute("CREATE DATABASE IF NOT EXISTS forensic_analyzer")
 		cur.execute(f"CREATE USER IF NOT EXISTS 'va_user'@'localhost' IDENTIFIED BY '{user_password_to_set}'")
 		cur.execute(f"ALTER USER 'va_user'@'localhost' IDENTIFIED BY '{user_password_to_set}'")
 		cur.execute("GRANT ALL PRIVILEGES ON forensic_analyzer.* TO 'va_user'@'localhost'")
 		cur.execute("FLUSH PRIVILEGES")
 
-		# 2. Tabellen
 		cur.execute("USE forensic_analyzer")
 
-		# --- NEU: cases-Tabelle ---
+		# cases
 		cur.execute("""
 			CREATE TABLE IF NOT EXISTS cases (
 				id INT AUTO_INCREMENT PRIMARY KEY,
@@ -112,7 +106,7 @@ class ForensicModel:
 			)
 		""")
 
-		# --- media_files auf case_id umgestellt ---
+		# media_files
 		cur.execute("""
 			CREATE TABLE IF NOT EXISTS media_files (
 				id INT AUTO_INCREMENT PRIMARY KEY,
@@ -128,7 +122,7 @@ class ForensicModel:
 			)
 		""")
 
-		# 3. mariadb.ini schreiben
+		# mariadb.ini schreiben
 		parser = ConfigParser()
 		parser.add_section('database')
 		parser.set('database', 'host', 'localhost')
@@ -142,14 +136,12 @@ class ForensicModel:
 		conn.commit()
 		conn.close()
 
-		# Configs neu laden
 		self.load_configs()
 
 	# ---------------------------------------------------------
 	# FALLVERWALTUNG
 	# ---------------------------------------------------------
 	def load_cases(self):
-		"""Lädt alle Fälle aus der DB."""
 		conn = self.get_connection()
 		if not conn:
 			return []
@@ -162,7 +154,6 @@ class ForensicModel:
 			conn.close()
 
 	def create_case(self, name, description):
-		"""Legt einen neuen Fall an und erzeugt den Ordnerbaum."""
 		conn = self.get_connection()
 		if not conn:
 			raise Exception("Keine DB-Verbindung")
@@ -174,7 +165,7 @@ class ForensicModel:
 				(name, description)
 			)
 			conn.commit()
-			case_id = cur.lastrowid   # <--- WICHTIG
+			case_id = cur.lastrowid
 		finally:
 			conn.close()
 
@@ -196,3 +187,135 @@ class ForensicModel:
 			folder.mkdir(parents=True, exist_ok=True)
 
 		return case_id
+
+	def load_case(self, case_id):
+		conn = self.get_connection()
+		if not conn:
+			return None
+
+		try:
+			cur = conn.cursor(dictionary=True)
+			cur.execute("SELECT * FROM cases WHERE id = ?", (case_id,))
+			case = cur.fetchone()
+
+			self.current_case = case
+			self.current_case_id = case_id
+
+			# Fallpfad setzen
+			case_root = self.proj_config.get("case_root", "./cases")
+			self.current_case_path = Path(case_root) / case["project_name"]
+
+			return case
+		finally:
+			conn.close()
+
+	# ---------------------------------------------------------
+	# HASHING
+	# ---------------------------------------------------------
+	def calculate_hash(self, filepath):
+		sha256 = hashlib.sha256()
+		try:
+			with open(filepath, "rb") as f:
+				for chunk in iter(lambda: f.read(8192), b""):
+					sha256.update(chunk)
+			return sha256.hexdigest()
+		except Exception as e:
+			print(f"Fehler beim Hashing von {filepath}: {e}")
+			return "HASH_ERROR"
+
+	# ---------------------------------------------------------
+	# THUMBNAIL
+	# ---------------------------------------------------------
+	def get_thumbnail(self, filepath):
+		temp_dir = "config/thumbnails"
+		if not os.path.exists(temp_dir):
+			os.makedirs(temp_dir)
+
+		thumb_filename = hashlib.md5(filepath.encode()).hexdigest() + ".jpg"
+		thumb_path = os.path.abspath(os.path.join(temp_dir, thumb_filename))
+
+		if os.path.exists(thumb_path):
+			return thumb_path
+
+		cap = cv2.VideoCapture(filepath)
+		cap.set(cv2.CAP_PROP_POS_MSEC, 1000)
+		success, frame = cap.read()
+
+		if not success:
+			cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+			success, frame = cap.read()
+
+		if success:
+			h, w = frame.shape[:2]
+			new_w = 320
+			new_h = int(h * (new_w / w))
+			resized = cv2.resize(frame, (new_w, new_h))
+			cv2.imwrite(thumb_path, resized)
+			cap.release()
+			return thumb_path
+
+		cap.release()
+		return None
+
+	# ---------------------------------------------------------
+	# DB SPEICHERN
+	# ---------------------------------------------------------
+	def save_to_db(self, path, name, f_hash, mi_dict, exif_dict):
+		if not self.current_case_id:
+			raise Exception("Kein Fall ausgewählt.")
+
+		conn = self.get_connection()
+		if not conn:
+			raise Exception("Keine Datenbankverbindung möglich.")
+
+		try:
+			cur = conn.cursor()
+			sql = """INSERT INTO media_files 
+					 (case_id, file_path, file_name, file_size, sha256_hash, metadata, exif_metadata) 
+					 VALUES (?, ?, ?, ?, ?, ?, ?)
+					 ON DUPLICATE KEY UPDATE file_name=VALUES(file_name)"""
+
+			cur.execute(sql, (
+				self.current_case_id,
+				path,
+				name,
+				os.stat(path).st_size,
+				f_hash,
+				json.dumps(mi_dict),
+				json.dumps(exif_dict)
+			))
+			conn.commit()
+		finally:
+			conn.close()
+
+	# ---------------------------------------------------------
+	# DB SUCHE
+	# ---------------------------------------------------------
+	def search_db(self, query):
+		if not self.current_case_id:
+			return []
+
+		conn = self.get_connection()
+		if not conn:
+			return []
+
+		try:
+			cur = conn.cursor(dictionary=True)
+			sql = """SELECT * FROM media_files 
+					 WHERE case_id = ?
+					 AND (
+						 file_name LIKE ?
+						 OR JSON_SEARCH(metadata, 'one', ?) IS NOT NULL
+						 OR JSON_SEARCH(exif_metadata, 'one', ?) IS NOT NULL
+					 )"""
+			like_q = f"%{query}%"
+			cur.execute(sql, (self.current_case_id, like_q, like_q, like_q))
+			return cur.fetchall()
+		finally:
+			conn.close()
+
+	# ---------------------------------------------------------
+	# PROJEKT LADEN (optional)
+	# ---------------------------------------------------------
+	def load_project(self, path):
+		self.project_path = path
