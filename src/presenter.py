@@ -2,14 +2,37 @@ import os
 import json
 from PyQt6.QtCore import QThreadPool, Qt
 from PyQt6.QtWidgets import QMenu
+from PyQt6.QtWidgets import QDialog
+
 from .worker import AnalysisWorker
 from .compare_window import ComparisonWindow
+from .import_dialog import ImportMediaDialog
 
 class ForensicPresenter:
 	def __init__(self, model, view):
 		self.model = model
 		self.view = view
 		self.threadpool = QThreadPool()
+
+
+		# --- SIGNAL-SLOT VERBINDUNGEN ---
+		self.view.start_requested.connect(self.handle_scan)
+		self.view.search_changed.connect(self.handle_search)
+		self.view.file_selected.connect(self.load_file_details)
+
+		# Überwachung von Tab-Wechseln durch den User
+		self.view.tabs.currentChanged.connect(self.track_tab_change)
+
+		# Rechtsklick-Menü für die Dateiliste aktivieren
+		self.view.file_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+		self.view.file_list.customContextMenuRequested.connect(self.show_context_menu)
+
+
+
+		# --- IMPORT-MEDIA SIGNAL ---
+		if hasattr(self.view, "import_media_requested"):
+			self.view.import_media_requested.connect(self.open_import_dialog)
+
 		
 		# ---------------------------------------------------------
 		# PATCH: Fallpfad + Unterordner aus dem Model übernehmen
@@ -186,6 +209,24 @@ class ForensicPresenter:
 				print(f"'{file_name}' vorgemerkt. ({len(self.comparison_data)} Dateien in Liste).")
 		except Exception as e:
 			print(f"Fehler beim Hinzufügen zum Vergleich: {e}")
+
+
+	def open_import_dialog(self):
+		"""Öffnet den Media-Import-Dialog."""
+		if not self.model.current_case_id:
+			print("Kein Fall ausgewählt – Import nicht möglich.")
+			return
+
+		dlg = ImportMediaDialog(self.model, parent=self.view)
+		result = dlg.exec()
+
+		if result == QDialog.DialogCode.Accepted:
+			print("📥 Import abgeschlossen – aktualisiere Dateiliste…")
+			self.refresh_ui_list()
+
+
+
+
 
 	def open_comparison_view(self):
 		"""Öffnet das separate Vergleichsfenster."""

@@ -7,6 +7,10 @@ from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QPixmap, QColor, QIcon
 
 class ForensicView(QMainWindow):
+
+	# --- PATCH: neues Signal für Import Media ---
+	import_media_requested = pyqtSignal()
+
 	start_requested = pyqtSignal()
 	config_requested = pyqtSignal()
 	search_changed = pyqtSignal(str)
@@ -31,11 +35,19 @@ class ForensicView(QMainWindow):
 		self.search_bar.setPlaceholderText("Suche...")
 		self.file_list = QListWidget()
 		self.btn_scan = QPushButton("Watchfolder Scan")
-		
+
+		# --- PATCH: neuer Button Import Media ---
+		self.btn_import_media = QPushButton("Import Media")
+		self.btn_import_media.setToolTip("Medien mit Lieferantenangaben importieren")
+		self.btn_import_media.clicked.connect(self.import_media_requested.emit)
+
 		left_panel.addWidget(QLabel("📂 Beweisstücke"))
 		left_panel.addWidget(self.search_bar)
 		left_panel.addWidget(self.file_list)
 		left_panel.addWidget(self.btn_scan)
+
+		# --- PATCH: Import-Button unter Scan-Button ---
+		left_panel.addWidget(self.btn_import_media)
 
 		# --- RECHTS ---
 		right_panel = QVBoxLayout()
@@ -100,7 +112,6 @@ class ForensicView(QMainWindow):
 			table.setHorizontalHeaderLabels(["Parameter", "Wert"])
 			table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 			
-			# --- NEU: EDITIEREN VERBIETEN ---
 			table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
 			table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
 			

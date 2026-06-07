@@ -88,6 +88,7 @@ class ForensicModel:
 		conn = mariadb.connect(host="localhost", user="root", password=root_password)
 		cur = conn.cursor()
 
+		# Datenbank + Benutzer
 		cur.execute("CREATE DATABASE IF NOT EXISTS forensic_analyzer")
 		cur.execute(f"CREATE USER IF NOT EXISTS 'va_user'@'localhost' IDENTIFIED BY '{user_password_to_set}'")
 		cur.execute(f"ALTER USER 'va_user'@'localhost' IDENTIFIED BY '{user_password_to_set}'")
@@ -96,7 +97,9 @@ class ForensicModel:
 
 		cur.execute("USE forensic_analyzer")
 
+		# ---------------------------------------------------------
 		# cases
+		# ---------------------------------------------------------
 		cur.execute("""
 			CREATE TABLE IF NOT EXISTS cases (
 				id INT AUTO_INCREMENT PRIMARY KEY,
@@ -106,7 +109,9 @@ class ForensicModel:
 			)
 		""")
 
+		# ---------------------------------------------------------
 		# media_files
+		# ---------------------------------------------------------
 		cur.execute("""
 			CREATE TABLE IF NOT EXISTS media_files (
 				id INT AUTO_INCREMENT PRIMARY KEY,
@@ -122,7 +127,53 @@ class ForensicModel:
 			)
 		""")
 
+		# ---------------------------------------------------------
+		# suppliers
+		# ---------------------------------------------------------
+		cur.execute("""
+			CREATE TABLE IF NOT EXISTS suppliers (
+				id INT AUTO_INCREMENT PRIMARY KEY,
+				name VARCHAR(255),
+				contact VARCHAR(255),
+				role VARCHAR(100),
+				notes TEXT,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			)
+		""")
+
+		# ---------------------------------------------------------
+		# deliveries
+		# ---------------------------------------------------------
+		cur.execute("""
+			CREATE TABLE IF NOT EXISTS deliveries (
+				id INT AUTO_INCREMENT PRIMARY KEY,
+				supplier_id INT,
+				case_id INT,
+				delivered_at TIMESTAMP,
+				description TEXT,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (supplier_id) REFERENCES suppliers(id),
+				FOREIGN KEY (case_id) REFERENCES cases(id)
+			)
+		""")
+
+		# ---------------------------------------------------------
+		# media_deliveries
+		# ---------------------------------------------------------
+		cur.execute("""
+			CREATE TABLE IF NOT EXISTS media_deliveries (
+				id INT AUTO_INCREMENT PRIMARY KEY,
+				media_id INT,
+				delivery_id INT,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (media_id) REFERENCES media_files(id),
+				FOREIGN KEY (delivery_id) REFERENCES deliveries(id)
+			)
+		""")
+
+		# ---------------------------------------------------------
 		# mariadb.ini schreiben
+		# ---------------------------------------------------------
 		parser = ConfigParser()
 		parser.add_section('database')
 		parser.set('database', 'host', 'localhost')
@@ -137,6 +188,7 @@ class ForensicModel:
 		conn.close()
 
 		self.load_configs()
+
 
 	# ---------------------------------------------------------
 	# FALLVERWALTUNG
@@ -313,6 +365,79 @@ class ForensicModel:
 			return cur.fetchall()
 		finally:
 			conn.close()
+
+
+	# ---------------------------------------------------------
+	# LIEFERANTEN & LIEFERUNGEN (NEU)
+	# ---------------------------------------------------------
+
+	def create_supplier(self, name, contact=None, role=None, notes=None):
+		"""Legt einen neuen Lieferanten an."""
+		conn = self.get_connection()
+		if not conn:
+			raise Exception("Keine DB-Verbindung")
+
+		try:
+			cur = conn.cursor()
+			cur.execute(
+				"INSERT INTO suppliers (name, contact, role, notes) VALUES (?, ?, ?, ?)",
+				(name, contact, role, notes)
+			)
+			conn.commit()
+			return cur.lastrowid
+		finally:
+			conn.close()
+
+	def find_supplier_by_name(self, name):
+		"""Sucht einen Lieferanten anhand des Namens."""
+		conn = self.get_connection()
+		if not conn:
+			return None
+
+		try:
+			cur = conn.cursor(dictionary=True)
+			cur.execute("SELECT * FROM suppliers WHERE name = ?", (name,))
+			return cur.fetchone()
+		finally:
+			conn.close()
+
+	def create_delivery(self, supplier_id, case_id, delivered_at, description=None):
+		"""Erstellt eine Lieferung (Gruppe von Dateien eines Lieferanten)."""
+		conn = self.get_connection()
+		if not conn:
+			raise Exception("Keine DB-Verbindung")
+
+		try:
+			cur = conn.cursor()
+			cur.execute(
+				"INSERT INTO deliveries (supplier_id, case_id, delivered_at, description) VALUES (?, ?, ?, ?)",
+				(supplier_id, case_id, delivered_at, description)
+			)
+			conn.commit()
+			return cur.lastrowid
+		finally:
+			conn.close()
+
+	def link_media_to_delivery(self, media_id, delivery_id):
+		"""Verknüpft eine Mediendatei mit einer Lieferung."""
+		conn = self.get_connection()
+		if not conn:
+			raise Exception("Keine DB-Verbindung")
+
+		try:
+			cur = conn.cursor()
+			cur.execute(
+				"INSERT INTO media_deliveries (media_id, delivery_id) VALUES (?, ?)",
+				(media_id, delivery_id)
+			)
+			conn.commit()
+			return cur.lastrowid
+		finally:
+			conn.close()
+
+
+
+
 
 	# ---------------------------------------------------------
 	# PROJEKT LADEN (optional)
