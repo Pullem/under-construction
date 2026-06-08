@@ -10,6 +10,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThreadPool, QRunnable, pyqtSignal, QObject
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 
+from PyQt6.QtWidgets import QComboBox
+
+
 
 # ---------------------------------------------------------
 # DROP-FÄHIGE LISTWIDGET
@@ -169,13 +172,28 @@ class ImportMediaDialog(QDialog):
 
 		self.setup_ui()
 
+		# --- Standard-Lieferdatum: jetzt ---
+		now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+		self.input_date.setText(now_str)
+
+
 	def setup_ui(self):
 		layout = QVBoxLayout()
 
 		# Lieferantenfelder
 		supplier_layout = QHBoxLayout()
-		self.input_supplier = QLineEdit()
+
+		# --- Lieferanten-Auswahl (ComboBox) ---
+		self.input_supplier = QComboBox()
+		self.input_supplier.setEditable(True)
 		self.input_supplier.setPlaceholderText("Lieferant Name")
+
+		# Liste der Lieferanten laden
+		self._load_suppliers()
+
+		# Wenn ein Lieferant ausgewählt wird → Felder automatisch füllen
+		self.input_supplier.currentTextChanged.connect(self._supplier_selected)
+
 
 		self.input_contact = QLineEdit()
 		self.input_contact.setPlaceholderText("Kontakt (Telefon / Email)")
@@ -190,14 +208,22 @@ class ImportMediaDialog(QDialog):
 
 		# Lieferdatum + Beschreibung
 		meta_layout = QHBoxLayout()
+
 		self.input_date = QLineEdit()
-		self.input_date.setPlaceholderText("Lieferdatum (optional)")
+		self.input_date.setPlaceholderText("Lieferdatum (YYYY-MM-DD HH:MM)")
+
+		# --- PATCH: Jetzt-Button ---
+		self.btn_set_now = QPushButton("Jetzt")
+		self.btn_set_now.setToolTip("Aktuelles Datum und Uhrzeit eintragen")
+		self.btn_set_now.clicked.connect(self._set_now)
 
 		self.input_desc = QLineEdit()
 		self.input_desc.setPlaceholderText("Beschreibung der Lieferung")
 
 		meta_layout.addWidget(self.input_date)
+		meta_layout.addWidget(self.btn_set_now)
 		meta_layout.addWidget(self.input_desc)
+
 		layout.addLayout(meta_layout)
 
 		# Notizen
@@ -252,6 +278,56 @@ class ImportMediaDialog(QDialog):
 			self.files.append(path)
 			self.list_widget.addItem(path)
 
+	def _validate_date(self, text):
+			"""Prüft, ob das Datum im Format YYYY-MM-DD HH:MM:SS ist."""
+			try:
+				datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+				return True
+			except ValueError:
+				return False
+
+	def _set_now(self):
+		now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+		self.input_date.setText(now_str)
+
+
+	def _load_suppliers(self):
+		"""Lädt alle Lieferanten aus der DB in die ComboBox."""
+		conn = self.model.get_connection()
+		if not conn:
+			return
+
+		try:
+			cur = conn.cursor(dictionary=True)
+			cur.execute("SELECT name FROM suppliers ORDER BY name ASC")
+			rows = cur.fetchall()
+			for r in rows:
+				self.input_supplier.addItem(r["name"])
+		finally:
+			conn.close()
+
+
+	def _supplier_selected(self, name):
+			"""Wenn ein Lieferant gewählt wird, fülle Kontakt/Rolle/Notizen automatisch."""
+			if not name:
+				return
+
+			supplier = self.model.find_supplier_by_name(name)
+			if not supplier:
+				# Neuer Lieferant → Felder leeren
+				self.input_contact.setText("")
+				self.input_role.setText("")
+				self.txt_notes.setText("")
+				return
+
+			# Bestehender Lieferant → Felder füllen
+			self.input_contact.setText(supplier.get("contact", "") or "")
+			self.input_role.setText(supplier.get("role", "") or "")
+			self.txt_notes.setText(supplier.get("notes", "") or "")
+
+
+
+
 	# ---------------------------------------------------------
 	# Import starten
 	# ---------------------------------------------------------
@@ -260,12 +336,25 @@ class ImportMediaDialog(QDialog):
 			QMessageBox.warning(self, "Keine Dateien", "Bitte mindestens eine Datei hinzufügen.")
 			return
 
-		if not self.input_supplier.text().strip():
+		if not self.input_supplier.currentText().strip():
 			QMessageBox.warning(self, "Lieferant fehlt", "Bitte den Namen des Lieferanten angeben.")
 			return
 
+
+		# --- PATCH: Datum validieren ---
+		date_text = self.input_date.text().strip()
+		if date_text and not self._validate_date(date_text):
+			QMessageBox.warning(
+				self,
+				"Ungültiges Datum",
+				"Bitte das Datum im Format:\n\nYYYY-MM-DD HH:MM:SS\n\nangeben."
+			)
+			return
+
+
+
 		supplier_info = {
-			"name": self.input_supplier.text().strip(),
+			"name": self.input_supplier.currentText().strip(),
 			"contact": self.input_contact.text().strip(),
 			"role": self.input_role.text().strip(),
 			"notes": self.txt_notes.toPlainText().strip()
