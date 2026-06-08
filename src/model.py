@@ -437,6 +437,23 @@ class ForensicModel:
 
 
 
+	def get_last_delivery_for_supplier(self, supplier_id, case_id):
+		conn = self.get_connection()
+		if not conn:
+			return None
+
+		cur = conn.cursor(dictionary=True)
+		cur.execute("""
+			SELECT * FROM deliveries
+			WHERE supplier_id = ? AND case_id = ?
+			ORDER BY delivered_at DESC
+			LIMIT 1
+		""", (supplier_id, case_id))
+		row = cur.fetchone()
+		conn.close()
+		return row
+
+
 
 
 	# ---------------------------------------------------------

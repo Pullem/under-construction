@@ -11,6 +11,7 @@
 *.sln.docstates
 
 ffmpeg.exe
+text.txt
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

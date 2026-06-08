@@ -192,6 +192,7 @@ class ImportMediaDialog(QDialog):
 		self._load_suppliers()
 
 		# Wenn ein Lieferant ausgewählt wird → Felder automatisch füllen
+		self.input_supplier.currentIndexChanged.connect(self._supplier_selected)
 		self.input_supplier.currentTextChanged.connect(self._supplier_selected)
 
 
@@ -307,23 +308,50 @@ class ImportMediaDialog(QDialog):
 			conn.close()
 
 
-	def _supplier_selected(self, name):
-			"""Wenn ein Lieferant gewählt wird, fülle Kontakt/Rolle/Notizen automatisch."""
-			if not name:
-				return
+	def _supplier_selected(self, value):
+		# value kann Index (int) oder Text (str) sein
+		if isinstance(value, int):
+			name = self.input_supplier.itemText(value)
+		else:
+			name = value
 
-			supplier = self.model.find_supplier_by_name(name)
-			if not supplier:
-				# Neuer Lieferant → Felder leeren
-				self.input_contact.setText("")
-				self.input_role.setText("")
-				self.txt_notes.setText("")
-				return
+		if not name:
+			return
 
-			# Bestehender Lieferant → Felder füllen
-			self.input_contact.setText(supplier.get("contact", "") or "")
-			self.input_role.setText(supplier.get("role", "") or "")
-			self.txt_notes.setText(supplier.get("notes", "") or "")
+		supplier = self.model.find_supplier_by_name(name)
+		if not supplier:
+			# Neuer Lieferant → Felder leeren
+			self.input_contact.setText("")
+			self.input_role.setText("")
+			self.txt_notes.setText("")
+			self.input_desc.setText("")
+			return
+
+		# Bestehender Lieferant → Felder füllen
+		self.input_contact.setText(supplier.get("contact", "") or "")
+		self.input_role.setText(supplier.get("role", "") or "")
+		self.txt_notes.setText(supplier.get("notes", "") or "")
+
+		# Letzte Lieferung holen
+		last_delivery = self.model.get_last_delivery_for_supplier(
+			supplier["id"],
+			self.model.current_case_id
+		)
+
+		if last_delivery:
+			# Beschreibung übernehmen
+			self.input_desc.setText(last_delivery.get("description", "") or "")
+
+			# Datum konvertieren
+			dt = last_delivery.get("delivered_at")
+			if isinstance(dt, datetime):
+				dt = dt.strftime("%Y-%m-%d %H:%M:%S")
+
+			self.input_date.setText(dt or "")
+		else:
+			# Keine frühere Lieferung → Beschreibung leer lassen
+			self.input_desc.setText("")
+
 
 
 
