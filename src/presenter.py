@@ -89,6 +89,14 @@ class ForensicPresenter:
 		print(f"System bereit. {self.threadpool.maxThreadCount()} Threads verfügbar.")
 		self.refresh_ui_list()
 
+	@staticmethod
+	def _parse_json_column(value):
+		if not value:
+			return {}
+		if isinstance(value, dict):
+			return value
+		return json.loads(value)
+
 	def track_tab_change(self, index):
 		"""Speichert den Namen des Tabs, den der User gerade angeklickt hat."""
 		name = self.view.get_active_tab_name()
@@ -148,9 +156,10 @@ class ForensicPresenter:
 			conn.close()
 
 			if row:
-				mi_data = json.loads(row['metadata'])
-				if row['exif_metadata']:
-					mi_data["EXIF Deep Dive"] = json.loads(row['exif_metadata'])
+				mi_data = self._parse_json_column(row.get('metadata'))
+				exif_data = self._parse_json_column(row.get('exif_metadata'))
+				if exif_data:
+					mi_data["EXIF Deep Dive"] = exif_data
 				
 				self.view.tabs.blockSignals(True)
 				self.view.display_metadata(mi_data)
@@ -212,6 +221,10 @@ class ForensicPresenter:
 
 
 	def open_import_dialog(self):
+		print("DEBUG: current_case_path =", self.model.current_case_path)
+		print("DEBUG:", self.model.current_case_path, self.model.current_case_path.exists())
+
+		
 		"""Öffnet den Media-Import-Dialog."""
 		if not self.model.current_case_id:
 			print("Kein Fall ausgewählt – Import nicht möglich.")

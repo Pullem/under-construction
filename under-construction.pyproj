@@ -38,7 +38,6 @@
   </ItemGroup>
   <ItemGroup>
     <Folder Include="config\" />
-    <Folder Include="evidence_input\" />
     <Folder Include="exiftool_files\" />
     <Folder Include="exiftool_files\lib\" />
     <Folder Include="exiftool_files\lib\Archive\" />
@@ -683,6 +682,7 @@
     <Compile Include="src\compare_window.py" />
     <Compile Include="src\import_dialog.py" />
     <Compile Include="src\launcher.py" />
+    <Compile Include="src\model - Copy.py" />
     <Compile Include="src\model.py" />
     <Compile Include="src\presenter.py" />
     <Compile Include="src\utils.py" />

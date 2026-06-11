@@ -12,6 +12,8 @@ from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 
 from PyQt6.QtWidgets import QComboBox
 
+from pymediainfo import MediaInfo
+
 
 
 # ---------------------------------------------------------
@@ -110,13 +112,20 @@ class ImportWorker(QRunnable):
 					if dest.exists():
 						dest = dest_dir / f"{src_path.stem}_{idx}{src_path.suffix}"
 
+					print("COPY TO:", dest)
+
+
 					shutil.copy2(src_path, dest)
 
 					# Hash berechnen
 					f_hash = self.model.calculate_hash(str(dest))
 
-					# Minimal-Metadaten
-					mi_dict = {"imported_from": str(src_path)}
+					mi_dict = {
+						track.track_type or "Other": track.to_data()
+						for track in MediaInfo.parse(str(dest)).tracks
+					}
+					if not mi_dict:
+						mi_dict = {"General": {"imported_from": str(src_path)}}
 					exif_dict = {}
 
 					# Media speichern
