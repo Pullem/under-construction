@@ -402,7 +402,7 @@ class ImportMediaDialog(QDialog):
 			"description": self.input_desc.text().strip()
 		}
 
-		dest_folder = Path(self.model.current_case_path) / "evidence_input"
+		dest_folder = self.model.get_case_path() / "evidence_input"
 
 		worker = ImportWorker(self.files, dest_folder, self.model, supplier_info, delivery_info)
 		worker.signals.progress.connect(self.progress.setValue)

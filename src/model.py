@@ -9,13 +9,25 @@ from pathlib import Path
 from datetime import datetime
 
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+CASE_SUBFOLDERS = (
+	"evidence_input",
+	"analyze_media",
+	"exports",
+	"reports",
+	"thumbnails",
+	"recovered",
+	"logs",
+)
+
+
 class ForensicModel:
 	def __init__(self, project_path=None):
 		self.project_path = project_path
 
-		# Config-Dateien
-		self.db_config_path = 'config/mariadb.ini'
-		self.proj_config_path = 'config/project.ini'
+		# Config-Dateien (immer relativ zum Projektroot, nicht zum CWD)
+		self.db_config_path = BASE_DIR / "config" / "mariadb.ini"
+		self.proj_config_path = BASE_DIR / "config" / "project.ini"
 
 		# interne Configs
 		self.db_config = {}
@@ -37,12 +49,12 @@ class ForensicModel:
 	# CONFIG LADEN
 	# ---------------------------------------------------------
 	def load_configs(self):
-		if not os.path.exists('config'):
-			os.makedirs('config')
+		config_dir = BASE_DIR / "config"
+		config_dir.mkdir(parents=True, exist_ok=True)
 
 		# mariadb.ini
 		parser = ConfigParser()
-		if os.path.exists(self.db_config_path):
+		if self.db_config_path.exists():
 			parser.read(self.db_config_path)
 			if parser.has_section('database'):
 				self.db_config = dict(parser.items('database'))
@@ -50,34 +62,46 @@ class ForensicModel:
 			self.db_config = {}
 
 		# project.ini
-		parser = ConfigParser()
-		if os.path.exists(self.proj_config_path):
-			parser.read(self.proj_config_path)
-			if parser.has_section('settings'):
-				# in proj_config einlesen, nicht überschreiben
-				self.proj_config.read(self.proj_config_path)
-
-		# Standardwerte, falls keine INI existiert oder leer ist
-		if not self.proj_config.sections():
-			self.proj_config["settings"] = {
-				"project_name": "Default_Case",
-				"watchfolder": "./evidence_input",
-				"case_root": "./cases"
-			}
+		if self.proj_config_path.exists():
+			self.proj_config.read(self.proj_config_path)
 
 	def load_project_config(self):
 		"""Lädt project.ini und stellt sicher, dass case_root absolut ist."""
-		ini_path = Path(self.proj_config_path)
-		if ini_path.exists():
-			self.proj_config.read(ini_path)
-
-		case_root = self.proj_config.get("settings", "case_root", fallback="./cases")
-		case_root = Path(case_root).resolve()
+		if self.proj_config_path.exists():
+			self.proj_config.read(self.proj_config_path)
 
 		if "settings" not in self.proj_config:
 			self.proj_config["settings"] = {}
 
-		self.proj_config["settings"]["case_root"] = str(case_root)
+		case_root = self.proj_config.get("settings", "case_root", fallback="").strip()
+		if case_root:
+			self.proj_config["settings"]["case_root"] = str(Path(case_root).resolve())
+
+	def get_case_root(self):
+		"""Basisordner für alle Fälle aus project.ini (absoluter Pfad)."""
+		case_root = self.proj_config.get("settings", "case_root", fallback="").strip()
+		if not case_root:
+			raise Exception(
+				"Kein case_root konfiguriert. Bitte in config/project.ini setzen "
+				"oder beim ersten Start den Speicherort wählen."
+			)
+		return Path(case_root).resolve()
+
+	def get_case_path(self, case_name=None):
+		"""Absoluter Ordnerpfad eines Falls unter case_root."""
+		name = case_name
+		if not name and self.current_case:
+			name = self.current_case.get("project_name")
+		if not name:
+			raise Exception("Kein Fallname verfügbar.")
+		return self.get_case_root() / name
+
+	def ensure_case_folders(self, case_path=None):
+		"""Legt die Standard-Unterordner eines Falls an (nur unter case_root)."""
+		case_path = Path(case_path or self.current_case_path or self.get_case_path())
+		for subfolder in CASE_SUBFOLDERS:
+			(case_path / subfolder).mkdir(parents=True, exist_ok=True)
+		return case_path
 
 	# ---------------------------------------------------------
 	# DB-VERBINDUNG
@@ -231,23 +255,8 @@ class ForensicModel:
 		finally:
 			conn.close()
 
-		# Absoluten case_root holen
-		case_root = Path(self.proj_config.get("settings", "case_root")).resolve()
-		case_path = case_root / name
-
-		# Ordnerbaum erzeugen
-		folders = [
-			case_path / "evidence_input",
-			case_path / "analyze_media",
-			case_path / "exports",
-			case_path / "reports",
-			case_path / "thumbnails",
-			case_path / "recovered",
-			case_path / "logs"
-		]
-
-		for folder in folders:
-			folder.mkdir(parents=True, exist_ok=True)
+		case_path = self.get_case_root() / name
+		self.ensure_case_folders(case_path)
 
 		# aktuellen Fall setzen
 		self.current_case_path = case_path
@@ -284,12 +293,8 @@ class ForensicModel:
 
 			self.current_case = case
 			self.current_case_id = case_id
-
-			# Absoluten case_root holen
-			case_root = Path(self.proj_config.get("settings", "case_root")).resolve()
-
-			# Fallpfad setzen
-			self.current_case_path = case_root / case["project_name"]
+			self.current_case_path = self.get_case_path(case["project_name"])
+			self.ensure_case_folders(self.current_case_path)
 
 			return case
 		finally:

@@ -1,12 +1,16 @@
 import sys, os
+from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox, QLineEdit
 
 from configparser import ConfigParser
 from src.launcher import CaseLauncher
-from src.model import ForensicModel
+from src.model import ForensicModel, BASE_DIR
 from src.view import ForensicView
 from src.presenter import ForensicPresenter
+
+
+PROJECT_INI = BASE_DIR / "config" / "project.ini"
 
 
 def main():
@@ -55,7 +59,7 @@ def main():
 	# ---------------------------------------------------------
 	# 1b) Projekt-Speicherort abfragen, wenn projekt.ini fehlt
 	# ---------------------------------------------------------
-	if not os.path.exists("config/project.ini"):
+	if not PROJECT_INI.exists():
 		from PyQt6.QtWidgets import QFileDialog
 		from configparser import ConfigParser
 
@@ -80,10 +84,13 @@ def main():
 
 		parser = ConfigParser()
 		parser.add_section("settings")
-		parser.set("settings", "case_root", folder)
+		parser.set("settings", "case_root", str(Path(folder).resolve()))
 
-		with open("config/project.ini", "w") as f:
+		PROJECT_INI.parent.mkdir(parents=True, exist_ok=True)
+		with open(PROJECT_INI, "w") as f:
 			parser.write(f)
+
+		model.load_project_config()
 
 		QMessageBox.information(
 			None,

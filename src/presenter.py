@@ -35,11 +35,13 @@ class ForensicPresenter:
 
 		
 		# ---------------------------------------------------------
-		# PATCH: Fallpfad + Unterordner aus dem Model übernehmen
+		# Fallpfad + Unterordner aus dem Model (nur case_root)
 		# ---------------------------------------------------------
-		self.case_path = model.current_case_path
+		if not model.current_case_path:
+			raise Exception("Kein Fall geladen – Ordnerstruktur kann nicht ermittelt werden.")
+		model.ensure_case_folders(model.current_case_path)
 
-		# Unterordner definieren
+		self.case_path = model.current_case_path
 		self.folder_evidence = self.case_path / "evidence_input"
 		self.folder_analyze = self.case_path / "analyze_media"
 		self.folder_exports = self.case_path / "exports"
@@ -47,18 +49,6 @@ class ForensicPresenter:
 		self.folder_thumbnails = self.case_path / "thumbnails"
 		self.folder_recovered = self.case_path / "recovered"
 		self.folder_logs = self.case_path / "logs"
-
-		# Ordner sicherstellen (falls manuell gelöscht)
-		for folder in [
-			self.folder_evidence,
-			self.folder_analyze,
-			self.folder_exports,
-			self.folder_reports,
-			self.folder_thumbnails,
-			self.folder_recovered,
-			self.folder_logs
-		]:
-			folder.mkdir(parents=True, exist_ok=True)
 		
 		# ---------------------------------------------------------
 		# PATCH: Fenstertitel mit Fallname setzen
