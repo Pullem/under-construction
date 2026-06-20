@@ -5,7 +5,7 @@ from ..worker import AnalysisWorker
 class ScanMixin:
 	def handle_scan(self):
 		folder = self.folder_evidence
-		if not os.path.exists(folder):
+		if not folder or not os.path.exists(folder):
 			print(f"FEHLER: Ordner {folder} nicht gefunden.")
 			return
 

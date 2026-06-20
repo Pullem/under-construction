@@ -4,7 +4,6 @@ from pathlib import Path
 from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox, QLineEdit
 
 from configparser import ConfigParser
-from src.launcher import CaseLauncher
 from src.model import ForensicModel, BASE_DIR
 from src.view import ForensicView
 from src.presenter import ForensicPresenter
@@ -101,23 +100,7 @@ def main():
 
 
 	# ---------------------------------------------------------
-	# 2) LAUNCHER STARTEN (DB ist jetzt garantiert vorhanden)
-	# ---------------------------------------------------------
-	launcher = CaseLauncher()
-	if launcher.exec() != launcher.DialogCode.Accepted:
-		return
-
-	case_id = launcher.selected_case_id
-	if not case_id:
-		return
-
-	# ---------------------------------------------------------
-	# 3) FALL LADEN
-	# ---------------------------------------------------------
-	model.load_case(case_id)
-
-	# ---------------------------------------------------------
-	# 4) GUI STARTEN
+	# 2) GUI STARTEN (ohne Fall-Vorauswahl – über Tab 1 steuerbar)
 	# ---------------------------------------------------------
 	try:
 		view = ForensicView()

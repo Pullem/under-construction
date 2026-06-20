@@ -1,6 +1,3 @@
-import os
-from PyQt6.QtGui import QPixmap
-
 from .main_window import MainWindowMixin
 from .metadata_tabs import MetadataTabMixin
 

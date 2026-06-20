@@ -5,10 +5,7 @@ from ..import_dialog import ImportMediaDialog
 
 class ImportMediaMixin:
 	def open_import_dialog(self):
-		print("DEBUG: current_case_path =", self.model.current_case_path)
-		print("DEBUG:", self.model.current_case_path, self.model.current_case_path.exists())
-
-		if not self.model.current_case_id:
+		if not self.model.current_case_id or not self.model.current_case_path:
 			print("Kein Fall ausgewählt – Import nicht möglich.")
 			return
 
