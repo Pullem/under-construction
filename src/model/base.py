@@ -100,6 +100,12 @@ class ConfigDBMixin:
 			print(f"[DB] Verbindungsfehler: {e}")
 			return None
 
+	def save_project_config(self):
+		config_dir = self.proj_config_path.parent
+		config_dir.mkdir(parents=True, exist_ok=True)
+		with open(self.proj_config_path, "w") as f:
+			self.proj_config.write(f)
+
 	def load_project(self, path):
 		self.project_path = Path(path).resolve()
 		print(f"[MODEL] Projekt geladen: {self.project_path}")

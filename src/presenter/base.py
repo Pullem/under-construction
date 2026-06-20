@@ -27,6 +27,11 @@ class PresenterBase:
 		if hasattr(self.view, "create_case_requested"):
 			self.view.create_case_requested.connect(self.handle_create_case)
 
+		if hasattr(self.view, "save_settings_requested"):
+			self.view.save_settings_requested.connect(self.handle_save_settings)
+
+		self._refresh_settings()
+
 		self.case_path = model.current_case_path
 		if self.case_path:
 			self._init_case_paths()
@@ -97,10 +102,16 @@ class PresenterBase:
 			case_name = case.get("project_name", "Unbekannter Fall")
 			self.view.setWindowTitle(f"Forensic Analyzer – {case_name}")
 			self.view.set_case_name(case_name)
+			self.view.clear_metadata_display()
 			self.refresh_ui_list()
 
 	def handle_create_case(self, name, desc, incident_at, incident_until=None):
 		try:
+			existing = self.model.load_cases()
+			if any(c["project_name"] == name for c in existing):
+				from PyQt6.QtWidgets import QMessageBox
+				QMessageBox.warning(self.view, "Fehler", f"Ein Fall mit dem Namen „{name}“ existiert bereits.")
+				return
 			case_id = self.model.create_case(name, desc, incident_at, incident_until)
 			self._init_case_paths()
 			self.view.set_case_name(name)
@@ -109,6 +120,21 @@ class PresenterBase:
 			self.refresh_case_list()
 		except Exception as e:
 			print(f"Fehler beim Erstellen des Falls: {e}")
+
+	def _refresh_settings(self):
+		db_user = self.model.db_config.get("user", "—")
+		db_password = "••••••••" if self.model.db_config.get("password") else "—"
+		case_root = self.model.proj_config.get("settings", "case_root", fallback="")
+		if hasattr(self.view, "_refresh_settings_display"):
+			self.view._refresh_settings_display(db_user, db_password, case_root)
+
+	def handle_save_settings(self, case_root):
+		from pathlib import Path
+		self.model.proj_config["settings"]["case_root"] = str(Path(case_root).resolve())
+		self.model.save_project_config()
+		self._refresh_settings()
+		from PyQt6.QtWidgets import QMessageBox
+		QMessageBox.information(self.view, "Gespeichert", "Einstellungen wurden gespeichert.")
 
 	def refresh_case_list(self):
 		cases = self.model.load_cases()

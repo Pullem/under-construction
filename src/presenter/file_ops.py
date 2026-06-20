@@ -9,7 +9,11 @@ class FileOpsMixin:
 
 		try:
 			cur = conn.cursor()
-			cur.execute("SELECT file_name FROM media_files ORDER BY created_at DESC")
+			case_id = self.model.current_case_id
+			if case_id:
+				cur.execute("SELECT file_name FROM media_files WHERE case_id = ? ORDER BY created_at DESC", (case_id,))
+			else:
+				cur.execute("SELECT file_name FROM media_files ORDER BY created_at DESC")
 			files = [r[0] for r in cur.fetchall()]
 			conn.close()
 			self.view.update_file_list(files)

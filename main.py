@@ -8,7 +8,7 @@ from src.model import ForensicModel, BASE_DIR
 from src.view import ForensicView
 from src.presenter import ForensicPresenter
 
-
+ 
 PROJECT_INI = BASE_DIR / "config" / "project.ini"
 
 

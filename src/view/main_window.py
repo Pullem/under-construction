@@ -55,6 +55,7 @@ class MainWindowMixin(QMainWindow):
 	import_media_requested = pyqtSignal()
 	case_selected = pyqtSignal(object)
 	create_case_requested = pyqtSignal(str, str, object, object)
+	save_settings_requested = pyqtSignal(str)
 
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
@@ -87,7 +88,7 @@ class MainWindowMixin(QMainWindow):
 		self._build_metadata_tab()
 		self._build_placeholder_tab("Auswertung")
 		self._build_placeholder_tab("Export")
-		self._build_placeholder_tab("Einstellungen")
+		self._build_settings_tab()
 
 		# Plugin-Tabs rechts
 		for i in range(1, 7):
@@ -225,6 +226,62 @@ class MainWindowMixin(QMainWindow):
 		self.nav_bar.addTab("Metadaten")
 		self.content_stack.addWidget(widget)
 
+	def _build_settings_tab(self):
+		widget = QWidget()
+		layout = QVBoxLayout(widget)
+
+		layout.addWidget(QLabel("<b>Einstellungen</b>"))
+		layout.addSpacing(20)
+
+		layout.addWidget(QLabel("Datenbank-Benutzer:"))
+		self.lbl_db_user = QLabel("—")
+		self.lbl_db_user.setStyleSheet("background-color: #2d2d2d; color: #ccc; padding: 6px; border: 1px solid #444;")
+		layout.addWidget(self.lbl_db_user)
+
+		layout.addWidget(QLabel("Datenbank-Passwort:"))
+		self.lbl_db_password = QLabel("—")
+		self.lbl_db_password.setStyleSheet("background-color: #2d2d2d; color: #ccc; padding: 6px; border: 1px solid #444;")
+		layout.addWidget(self.lbl_db_password)
+
+		layout.addSpacing(20)
+		layout.addWidget(QLabel("Basisordner für neue Fälle:"))
+		folder_layout = QHBoxLayout()
+		self.txt_case_root = QLineEdit()
+		folder_layout.addWidget(self.txt_case_root)
+		btn_browse = QPushButton("…")
+		btn_browse.setFixedWidth(40)
+		btn_browse.clicked.connect(self._on_browse_case_root)
+		folder_layout.addWidget(btn_browse)
+		layout.addLayout(folder_layout)
+
+		layout.addSpacing(10)
+		btn_save = QPushButton("Einstellungen speichern")
+		btn_save.clicked.connect(self._on_save_settings)
+		layout.addWidget(btn_save)
+
+		layout.addStretch()
+
+		self.nav_bar.addTab("Einstellungen")
+		self.content_stack.addWidget(widget)
+
+	def _refresh_settings_display(self, db_user, db_password, case_root):
+		self.lbl_db_user.setText(db_user or "—")
+		self.lbl_db_password.setText(db_password or "—")
+		self.txt_case_root.setText(case_root or "")
+
+	def _on_browse_case_root(self):
+		from PyQt6.QtWidgets import QFileDialog
+		folder = QFileDialog.getExistingDirectory(self, "Basisordner für Fälle auswählen")
+		if folder:
+			self.txt_case_root.setText(folder)
+
+	def _on_save_settings(self):
+		case_root = self.txt_case_root.text().strip()
+		if not case_root:
+			QMessageBox.warning(self, "Fehler", "Basisordner darf nicht leer sein.")
+			return
+		self.save_settings_requested.emit(case_root)
+
 	def _build_placeholder_tab(self, title):
 		widget = QWidget()
 		layout = QVBoxLayout(widget)
@@ -246,6 +303,9 @@ class MainWindowMixin(QMainWindow):
 			return
 		incident_at = QDateTime(self.d_incident.date(), self.t_incident.time()).toPyDateTime()
 		incident_until = QDateTime(self.d_incident_until.date(), self.t_incident_until.time()).toPyDateTime() if self.chk_bis.isChecked() else None
+		if incident_until and incident_until < incident_at:
+			QMessageBox.warning(self, "Fehler", "„Bis“-Tatzeit liegt vor der „Von“-Tatzeit.")
+			return
 		self.create_case_requested.emit(name, desc, incident_at, incident_until)
 
 	def _on_case_selected(self):
@@ -273,6 +333,9 @@ class MainWindowMixin(QMainWindow):
 
 			QStackedWidget { background-color: #1e1e1e; border: none; }
 			QTabWidget::pane { border: 1px solid #333; background-color: #1e1e1e; }
+			QTabBar::tab { background-color: #2d2d2d; color: #888; padding: 8px 12px; border: 1px solid #333; border-bottom: 2px solid #444; }
+			QTabBar::tab:selected { background-color: #1e1e1e; color: #fff; border-bottom: 2px solid #0e639c; }
+			QTabBar::tab:hover { background-color: #333; }
 
 			QHeaderView::section { background-color: #2d2d2d; color: #aaa; padding: 5px; border: 1px solid #111; }
 			QTableWidget { background-color: #1e1e1e; color: #ddd; gridline-color: #2d2d2d; border: none; }
@@ -287,6 +350,11 @@ class MainWindowMixin(QMainWindow):
 		for i in range(self.file_list.count()):
 			item = self.file_list.item(i)
 			item.setHidden(query.lower() not in item.text().lower())
+
+	def clear_metadata_display(self):
+		self.tabs.clear()
+		self.thumb_label.setText("Vorschau")
+		self.thumb_label.setPixmap(QPixmap())
 
 	def set_thumbnail(self, path):
 		if path and os.path.exists(path):
