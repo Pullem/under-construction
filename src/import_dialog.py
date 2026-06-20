@@ -13,6 +13,7 @@ from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 from PyQt6.QtWidgets import QComboBox
 
 from pymediainfo import MediaInfo
+import exiftool
 
 
 
@@ -127,6 +128,17 @@ class ImportWorker(QRunnable):
 					if not mi_dict:
 						mi_dict = {"General": {"imported_from": str(src_path)}}
 					exif_dict = {}
+					try:
+						BASE_DIR = Path(__file__).resolve().parent.parent
+						exif_path = str(BASE_DIR / "exiftool.exe")
+						if not os.path.exists(exif_path):
+							exif_path = str(BASE_DIR / "exiftool_files" / "exiftool.pl")
+						with exiftool.ExifToolHelper(executable=exif_path) as et:
+							metadata = et.get_metadata(str(dest))
+							if metadata:
+								exif_dict = metadata[0]
+					except Exception as e:
+						print(f"[ImportWorker] ExifTool Fehler: {e}")
 
 					# Media speichern
 					self.model.save_to_db(

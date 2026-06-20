@@ -1,9 +1,12 @@
 import os
 import json
 import traceback
+from pathlib import Path
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject
 import exiftool
 from pymediainfo import MediaInfo
+
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 class WorkerSignals(QObject):
 	result = pyqtSignal(dict)
@@ -37,13 +40,9 @@ class AnalysisWorker(QRunnable):
 			print(f"[Worker] ExifTool Deep Dive (Expliziter Pfad-Check)...")
 			exif_data = {}
 			
-			# Wir definieren den Pfad absolut
-			# Option A: Die Datei liegt direkt im Projektordner
-			exif_path = os.path.abspath("exiftool.exe") 
-			
-			# Falls das nicht klappt, nehmen wir deinen Installationspfad:
+			exif_path = str(BASE_DIR / "exiftool.exe")
 			if not os.path.exists(exif_path):
-				exif_path = r"D:\Applikationen\exiftool-13.55_64\exiftool.exe"
+				exif_path = str(BASE_DIR / "exiftool_files" / "exiftool.pl")
 
 			try:
 				# Wir übergeben den Pfad direkt an den Helper
