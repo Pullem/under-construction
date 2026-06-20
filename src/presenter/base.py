@@ -99,9 +99,9 @@ class PresenterBase:
 			self.view.set_case_name(case_name)
 			self.refresh_ui_list()
 
-	def handle_create_case(self, name, desc):
+	def handle_create_case(self, name, desc, incident_at, incident_until=None):
 		try:
-			case_id = self.model.create_case(name, desc)
+			case_id = self.model.create_case(name, desc, incident_at, incident_until)
 			self._init_case_paths()
 			self.view.set_case_name(name)
 			self.view.setWindowTitle(f"Forensic Analyzer – {name}")

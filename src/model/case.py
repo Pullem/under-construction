@@ -6,7 +6,7 @@ from .base import BASE_DIR
 
 
 class CaseMixin:
-	def create_case(self, name, description):
+	def create_case(self, name, description, incident_at=None, incident_until=None):
 		conn = self.get_connection()
 		if not conn:
 			raise Exception("Keine DB-Verbindung")
@@ -14,8 +14,8 @@ class CaseMixin:
 		try:
 			cur = conn.cursor()
 			cur.execute(
-				"INSERT INTO cases (project_name, description) VALUES (?, ?)",
-				(name, description)
+				"INSERT INTO cases (project_name, description, incident_at, incident_until) VALUES (?, ?, ?, ?)",
+				(name, description, incident_at, incident_until)
 			)
 			conn.commit()
 			case_id = cur.lastrowid
@@ -78,10 +78,12 @@ class CaseMixin:
 		cur.execute("USE forensic_analyzer")
 
 		cur.execute("""
-			CREATE TABLE `cases` (
+			CREATE TABLE IF NOT EXISTS `cases` (
 			  `id` int(11) NOT NULL AUTO_INCREMENT,
 			  `project_name` varchar(255) NOT NULL,
 			  `description` text DEFAULT NULL,
+			  `incident_at` datetime DEFAULT NULL,
+			  `incident_until` datetime DEFAULT NULL,
 			  `created_at` timestamp NULL DEFAULT current_timestamp(),
 			  PRIMARY KEY (`id`)
 			) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
