@@ -3,8 +3,8 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 							 QListWidget, QListWidgetItem, QLabel, QLineEdit,
 							 QPushButton, QTabWidget, QTabBar, QTextEdit,
 							 QStackedWidget, QMessageBox, QStyle, QStyleOptionTab,
-							 QDateTimeEdit, QCheckBox)
-from PyQt6.QtCore import pyqtSignal, Qt, QSize
+							 QDateEdit, QTimeEdit, QCheckBox)
+from PyQt6.QtCore import pyqtSignal, Qt, QSize, QDate, QTime, QDateTime
 from PyQt6.QtGui import QPixmap, QPainter, QColor
 
 
@@ -125,18 +125,26 @@ class MainWindowMixin(QMainWindow):
 		# ---- Tatzeit ----
 		tatzeit_layout = QHBoxLayout()
 		tatzeit_layout.addWidget(QLabel("Tatzeit:"))
-		self.dt_incident = QDateTimeEdit()
-		self.dt_incident.setCalendarPopup(True)
-		self.dt_incident.setDisplayFormat("dd.MM.yyyy HH:mm")
-		tatzeit_layout.addWidget(self.dt_incident)
+		first_of_month = QDate.currentDate().addDays(-QDate.currentDate().day() + 1)
+		self.d_incident = QDateEdit(first_of_month)
+		self.d_incident.setCalendarPopup(True)
+		self.d_incident.setDisplayFormat("dd.MM.yyyy")
+		tatzeit_layout.addWidget(self.d_incident)
+		self.t_incident = QTimeEdit(QTime(0, 0))
+		self.t_incident.setDisplayFormat("HH:mm")
+		tatzeit_layout.addWidget(self.t_incident)
 		self.chk_bis = QCheckBox("Bis:")
 		self.chk_bis.toggled.connect(self._on_bis_toggled)
 		tatzeit_layout.addWidget(self.chk_bis)
-		self.dt_incident_until = QDateTimeEdit()
-		self.dt_incident_until.setCalendarPopup(True)
-		self.dt_incident_until.setDisplayFormat("dd.MM.yyyy HH:mm")
-		self.dt_incident_until.setVisible(False)
-		tatzeit_layout.addWidget(self.dt_incident_until)
+		self.d_incident_until = QDateEdit(first_of_month)
+		self.d_incident_until.setCalendarPopup(True)
+		self.d_incident_until.setDisplayFormat("dd.MM.yyyy")
+		self.d_incident_until.setVisible(False)
+		tatzeit_layout.addWidget(self.d_incident_until)
+		self.t_incident_until = QTimeEdit(QTime(0, 0))
+		self.t_incident_until.setDisplayFormat("HH:mm")
+		self.t_incident_until.setVisible(False)
+		tatzeit_layout.addWidget(self.t_incident_until)
 		tatzeit_layout.addStretch()
 		layout.addLayout(tatzeit_layout)
 
@@ -227,7 +235,8 @@ class MainWindowMixin(QMainWindow):
 		self.content_stack.addWidget(widget)
 
 	def _on_bis_toggled(self, checked):
-		self.dt_incident_until.setVisible(checked)
+		self.d_incident_until.setVisible(checked)
+		self.t_incident_until.setVisible(checked)
 
 	def _on_create_case(self):
 		name = self.txt_case_name.text().strip()
@@ -235,8 +244,8 @@ class MainWindowMixin(QMainWindow):
 		if not name:
 			QMessageBox.warning(self, "Fehler", "Fallname darf nicht leer sein.")
 			return
-		incident_at = self.dt_incident.dateTime().toPyDateTime()
-		incident_until = self.dt_incident_until.dateTime().toPyDateTime() if self.chk_bis.isChecked() else None
+		incident_at = QDateTime(self.d_incident.date(), self.t_incident.time()).toPyDateTime()
+		incident_until = QDateTime(self.d_incident_until.date(), self.t_incident_until.time()).toPyDateTime() if self.chk_bis.isChecked() else None
 		self.create_case_requested.emit(name, desc, incident_at, incident_until)
 
 	def _on_case_selected(self):
