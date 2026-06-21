@@ -56,11 +56,16 @@ class MainWindowMixin(QMainWindow):
 	case_selected = pyqtSignal(object)
 	create_case_requested = pyqtSignal(str, str, object, object)
 	save_settings_requested = pyqtSignal(str)
+	update_db_password_requested = pyqtSignal(str)
 
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
 		self.setWindowTitle("Video Forensic Lab - Analyzer")
 		self.resize(1280, 720)
+		self._raw_db_password = ""
+		self._pw_visible = False
+		self._raw_root_password = ""
+		self._root_pw_visible = False
 
 	def setup_ui(self):
 		central = QWidget()
@@ -192,7 +197,8 @@ class MainWindowMixin(QMainWindow):
 
 		left = QVBoxLayout()
 		self.search_bar = QLineEdit()
-		self.search_bar.setPlaceholderText("Suche in Metadaten...")
+		self.search_bar.setPlaceholderText("Dateiliste filtern...")
+		self.search_bar.setClearButtonEnabled(True)
 		self.file_list = QListWidget()
 		self.btn_scan = QPushButton("Watchfolder scannen")
 		self.btn_scan.setToolTip("Scannt den Eingabeordner nach Mediendateien")
@@ -212,6 +218,10 @@ class MainWindowMixin(QMainWindow):
 		self.tabs.setDocumentMode(True)
 
 		right.addWidget(self.thumb_label, alignment=Qt.AlignmentFlag.AlignCenter)
+		self.meta_search_bar = QLineEdit()
+		self.meta_search_bar.setPlaceholderText("In Metadaten suchen...")
+		self.meta_search_bar.setClearButtonEnabled(True)
+		right.addWidget(self.meta_search_bar)
 		right.addWidget(self.tabs, 1)
 
 		layout.addLayout(left, 1)
@@ -219,12 +229,17 @@ class MainWindowMixin(QMainWindow):
 
 		self.btn_scan.clicked.connect(self.scan_requested.emit)
 		self.search_bar.textChanged.connect(self.search_changed.emit)
+		self.meta_search_bar.textChanged.connect(self._on_meta_search)
 		self.file_list.itemClicked.connect(
 			lambda item: self.file_selected.emit(item.text())
 		)
 
 		self.nav_bar.addTab("Metadaten")
 		self.content_stack.addWidget(widget)
+
+	def _on_meta_search(self, query):
+		if hasattr(self, "search_metadata_tables"):
+			self.search_metadata_tables(query)
 
 	def _build_settings_tab(self):
 		widget = QWidget()
@@ -239,9 +254,48 @@ class MainWindowMixin(QMainWindow):
 		layout.addWidget(self.lbl_db_user)
 
 		layout.addWidget(QLabel("Datenbank-Passwort:"))
+		pw_layout = QHBoxLayout()
 		self.lbl_db_password = QLabel("—")
 		self.lbl_db_password.setStyleSheet("background-color: #2d2d2d; color: #ccc; padding: 6px; border: 1px solid #444;")
-		layout.addWidget(self.lbl_db_password)
+		self.lbl_db_password.setMinimumWidth(200)
+		self.lbl_db_password.setWordWrap(True)
+		pw_layout.addWidget(self.lbl_db_password, 1)
+		self._pw_visible = False
+		self.btn_toggle_pw = QPushButton("\U0001F441")
+		self.btn_toggle_pw.setFixedWidth(36)
+		self.btn_toggle_pw.setCheckable(True)
+		self.btn_toggle_pw.toggled.connect(self._toggle_password_visible)
+		pw_layout.addWidget(self.btn_toggle_pw)
+		layout.addLayout(pw_layout)
+
+		layout.addWidget(QLabel("MariaDB-Root-Passwort:"))
+		root_pw_layout = QHBoxLayout()
+		self.lbl_root_password = QLabel("—")
+		self.lbl_root_password.setStyleSheet("background-color: #2d2d2d; color: #ccc; padding: 6px; border: 1px solid #444;")
+		self.lbl_root_password.setMinimumWidth(200)
+		self.lbl_root_password.setWordWrap(True)
+		root_pw_layout.addWidget(self.lbl_root_password, 1)
+		self._root_pw_visible = False
+		self.btn_toggle_root_pw = QPushButton("\U0001F441")
+		self.btn_toggle_root_pw.setFixedWidth(36)
+		self.btn_toggle_root_pw.setCheckable(True)
+		self.btn_toggle_root_pw.toggled.connect(self._toggle_root_pw_visible)
+		root_pw_layout.addWidget(self.btn_toggle_root_pw)
+		layout.addLayout(root_pw_layout)
+
+		layout.addSpacing(10)
+		layout.addWidget(QLabel("Neues Datenbank-Passwort festlegen (optional):"))
+		new_pw_layout = QHBoxLayout()
+		self.txt_new_db_password = QLineEdit()
+		self.txt_new_db_password.setEchoMode(QLineEdit.EchoMode.Password)
+		self.txt_new_db_password.setPlaceholderText("leer lassen = kein Update")
+		new_pw_layout.addWidget(self.txt_new_db_password)
+		self.btn_toggle_new_pw = QPushButton("\U0001F441")
+		self.btn_toggle_new_pw.setFixedWidth(36)
+		self.btn_toggle_new_pw.setCheckable(True)
+		self.btn_toggle_new_pw.toggled.connect(self._toggle_new_pw_visible)
+		new_pw_layout.addWidget(self.btn_toggle_new_pw)
+		layout.addLayout(new_pw_layout)
 
 		layout.addSpacing(20)
 		layout.addWidget(QLabel("Basisordner für neue Fälle:"))
@@ -264,10 +318,40 @@ class MainWindowMixin(QMainWindow):
 		self.nav_bar.addTab("Einstellungen")
 		self.content_stack.addWidget(widget)
 
-	def _refresh_settings_display(self, db_user, db_password, case_root):
+	def _refresh_settings_display(self, db_user, db_password, case_root, root_password=""):
 		self.lbl_db_user.setText(db_user or "—")
-		self.lbl_db_password.setText(db_password or "—")
+		self._raw_db_password = db_password or ""
+		self._pw_visible = False
+		self._update_password_display()
+		self._raw_root_password = root_password or ""
+		self._root_pw_visible = False
+		self._update_root_password_display()
 		self.txt_case_root.setText(case_root or "")
+		self.txt_new_db_password.clear()
+
+	def _update_password_display(self):
+		if self._raw_db_password:
+			self.lbl_db_password.setText(self._raw_db_password if self._pw_visible else "••••••••")
+		else:
+			self.lbl_db_password.setText("—")
+		self.btn_toggle_pw.setVisible(bool(self._raw_db_password))
+
+	def _update_root_password_display(self):
+		if self._raw_root_password:
+			self.lbl_root_password.setText(self._raw_root_password if self._root_pw_visible else "••••••••")
+		else:
+			self.lbl_root_password.setText("—")
+
+	def _toggle_root_pw_visible(self, checked):
+		self._root_pw_visible = checked
+		self._update_root_password_display()
+
+	def _toggle_password_visible(self, checked):
+		self._pw_visible = checked
+		self._update_password_display()
+
+	def _toggle_new_pw_visible(self, checked):
+		self.txt_new_db_password.setEchoMode(QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password)
 
 	def _on_browse_case_root(self):
 		from PyQt6.QtWidgets import QFileDialog
@@ -280,6 +364,9 @@ class MainWindowMixin(QMainWindow):
 		if not case_root:
 			QMessageBox.warning(self, "Fehler", "Basisordner darf nicht leer sein.")
 			return
+		new_pw = self.txt_new_db_password.text().strip()
+		if new_pw:
+			self.update_db_password_requested.emit(new_pw)
 		self.save_settings_requested.emit(case_root)
 
 	def _build_placeholder_tab(self, title):
@@ -353,6 +440,7 @@ class MainWindowMixin(QMainWindow):
 
 	def clear_metadata_display(self):
 		self.tabs.clear()
+		self._metadata_tables = []
 		self.thumb_label.setText("Vorschau")
 		self.thumb_label.setPixmap(QPixmap())
 

@@ -143,15 +143,14 @@ class CaseMixin:
 			)
 		""")
 
-		parser = ConfigParser()
-		parser.add_section('database')
-		parser.set('database', 'host', 'localhost')
-		parser.set('database', 'user', 'va_user')
-		parser.set('database', 'password', user_password_to_set)
-		parser.set('database', 'port', '3306')
-
-		with open(self.db_config_path, 'w') as f:
-			parser.write(f)
+		self.db_config = {
+			"host": "localhost",
+			"user": "va_user",
+			"password": user_password_to_set,
+			"port": "3306",
+		}
+		self.root_password = root_password
+		self.save_db_config()
 
 		conn.commit()
 		conn.close()

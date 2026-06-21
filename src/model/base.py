@@ -26,6 +26,7 @@ class ConfigDBMixin:
 
 		self.db_config = {}
 		self.proj_config = ConfigParser()
+		self.root_password = ""
 
 		self.current_case = None
 		self.current_case_id = None
@@ -41,11 +42,12 @@ class ConfigDBMixin:
 		config_dir = BASE_DIR / "config"
 		config_dir.mkdir(parents=True, exist_ok=True)
 
-		parser = ConfigParser()
+		parser = ConfigParser(interpolation=None)
 		if self.db_config_path.exists():
 			parser.read(self.db_config_path)
 			if parser.has_section('database'):
 				self.db_config = dict(parser.items('database'))
+			self.root_password = parser.get('root', 'password', fallback='') if parser.has_section('root') else ''
 		else:
 			self.db_config = {}
 
@@ -99,6 +101,19 @@ class ConfigDBMixin:
 		except mariadb.Error as e:
 			print(f"[DB] Verbindungsfehler: {e}")
 			return None
+
+	def save_db_config(self):
+		config_dir = self.db_config_path.parent
+		config_dir.mkdir(parents=True, exist_ok=True)
+		parser = ConfigParser(interpolation=None)
+		parser.add_section("database")
+		for k, v in self.db_config.items():
+			parser.set("database", k, str(v))
+		if self.root_password:
+			parser.add_section("root")
+			parser.set("root", "password", self.root_password)
+		with open(self.db_config_path, "w") as f:
+			parser.write(f)
 
 	def save_project_config(self):
 		config_dir = self.proj_config_path.parent

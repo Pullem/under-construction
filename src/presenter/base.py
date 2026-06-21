@@ -30,6 +30,9 @@ class PresenterBase:
 		if hasattr(self.view, "save_settings_requested"):
 			self.view.save_settings_requested.connect(self.handle_save_settings)
 
+		if hasattr(self.view, "update_db_password_requested"):
+			self.view.update_db_password_requested.connect(self.handle_update_db_password)
+
 		self._refresh_settings()
 
 		self.case_path = model.current_case_path
@@ -123,10 +126,16 @@ class PresenterBase:
 
 	def _refresh_settings(self):
 		db_user = self.model.db_config.get("user", "—")
-		db_password = "••••••••" if self.model.db_config.get("password") else "—"
+		db_password = self.model.db_config.get("password", "")
 		case_root = self.model.proj_config.get("settings", "case_root", fallback="")
+		root_password = getattr(self.model, "root_password", "")
 		if hasattr(self.view, "_refresh_settings_display"):
-			self.view._refresh_settings_display(db_user, db_password, case_root)
+			self.view._refresh_settings_display(db_user, db_password, case_root, root_password)
+
+	def handle_update_db_password(self, new_password):
+		self.model.db_config["password"] = new_password
+		self.model.save_db_config()
+		self._refresh_settings()
 
 	def handle_save_settings(self, case_root):
 		from pathlib import Path
