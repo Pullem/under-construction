@@ -57,6 +57,7 @@ class MainWindowMixin(QMainWindow):
 	create_case_requested = pyqtSignal(str, str, object, object)
 	save_settings_requested = pyqtSignal(str)
 	update_db_password_requested = pyqtSignal(str)
+	open_timeline_requested = pyqtSignal()
 
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
@@ -91,7 +92,7 @@ class MainWindowMixin(QMainWindow):
 		self._build_case_tab()
 		self._build_import_tab()
 		self._build_metadata_tab()
-		self._build_placeholder_tab("Auswertung")
+		self._build_analysis_tab()
 		self._build_placeholder_tab("Export")
 		self._build_settings_tab()
 
@@ -368,6 +369,23 @@ class MainWindowMixin(QMainWindow):
 		if new_pw:
 			self.update_db_password_requested.emit(new_pw)
 		self.save_settings_requested.emit(case_root)
+
+	def _build_analysis_tab(self):
+		widget = QWidget()
+		layout = QVBoxLayout(widget)
+
+		layout.addWidget(QLabel("<b>Auswertung</b>"))
+		layout.addSpacing(20)
+
+		btn_timeline = QPushButton("Zeitachsen-Analyse öffnen")
+		btn_timeline.setMinimumHeight(60)
+		btn_timeline.clicked.connect(self.open_timeline_requested.emit)
+		layout.addWidget(btn_timeline)
+
+		layout.addStretch()
+
+		self.nav_bar.addTab("Auswertung")
+		self.content_stack.addWidget(widget)
 
 	def _build_placeholder_tab(self, title):
 		widget = QWidget()

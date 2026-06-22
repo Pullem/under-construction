@@ -33,6 +33,9 @@ class PresenterBase:
 		if hasattr(self.view, "update_db_password_requested"):
 			self.view.update_db_password_requested.connect(self.handle_update_db_password)
 
+		if hasattr(self.view, "open_timeline_requested"):
+			self.view.open_timeline_requested.connect(self.handle_open_timeline)
+
 		self._refresh_settings()
 
 		self.case_path = model.current_case_path
@@ -144,6 +147,36 @@ class PresenterBase:
 		self._refresh_settings()
 		from PyQt6.QtWidgets import QMessageBox
 		QMessageBox.information(self.view, "Gespeichert", "Einstellungen wurden gespeichert.")
+
+	def handle_open_timeline(self):
+		from ..timeline_window import TimelineWindow
+		if not self.model.current_case:
+			from PyQt6.QtWidgets import QMessageBox
+			QMessageBox.warning(self.view, "Kein Fall aktiv",
+							   "Bitte wählen Sie zuerst einen Fall aus.")
+			return
+		media_files = []
+		conn = self.model.get_connection()
+		if conn:
+			try:
+				cur = conn.cursor(dictionary=True)
+				cur.execute(
+					"SELECT file_name, file_path, metadata, exif_metadata FROM media_files WHERE case_id = ?",
+					(self.model.current_case_id,)
+				)
+				media_files = cur.fetchall() or []
+			finally:
+				conn.close()
+		import json
+		for f in media_files:
+			for col in ("metadata", "exif_metadata"):
+				if isinstance(f.get(col), str):
+					try:
+						f[col] = json.loads(f[col])
+					except (json.JSONDecodeError, TypeError):
+						f[col] = {}
+		win = TimelineWindow(media_files, self.model.current_case, self.view)
+		win.exec()
 
 	def refresh_case_list(self):
 		cases = self.model.load_cases()

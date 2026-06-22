@@ -720,6 +720,7 @@
     <Compile Include="src\presenter\import_media.py" />
     <Compile Include="src\presenter\scan.py" />
     <Compile Include="src\presenter\__init__.py" />
+    <Compile Include="src\timeline_window.py" />
     <Compile Include="src\utils.py" />
     <Compile Include="src\overlay.py" />
     <Compile Include="src\view\forensic_view.py" />
