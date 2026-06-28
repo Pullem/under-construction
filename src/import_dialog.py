@@ -113,20 +113,14 @@ class ImportWorker(QRunnable):
 					if dest.exists():
 						dest = dest_dir / f"{src_path.stem}_{idx}{src_path.suffix}"
 
-					print("COPY TO:", dest)
-
-
-					shutil.copy2(src_path, dest)
-
-					# Hash berechnen
-					f_hash = self.model.calculate_hash(str(dest))
-
+					# Metadaten vom QUELL-File extrahieren (korrekte Erstelldaten)
+					print(f"[ImportWorker] Extrahiere Metadaten von Quelle: {src_path}")
 					mi_dict = {
 						track.track_type or "Other": track.to_data()
-						for track in MediaInfo.parse(str(dest)).tracks
+						for track in MediaInfo.parse(str(src_path)).tracks
 					}
 					if not mi_dict:
-						mi_dict = {"General": {"imported_from": str(src_path)}}
+						mi_dict = {"General": {"source_path": str(src_path)}}
 					# CLI-Fallback für Recorded_Location und file_creation_date_local
 					try:
 						import subprocess
@@ -135,7 +129,7 @@ class ImportWorker(QRunnable):
 							("General;%File_Creation_Date_Local%", "file_creation_date_local"),
 						):
 							r = subprocess.run(
-								["mediainfo", f"--Inform={fmt}", str(dest)],
+								["mediainfo", f"--Inform={fmt}", str(src_path)],
 								capture_output=True, text=True, timeout=10
 							)
 							val = r.stdout.strip()
@@ -145,6 +139,8 @@ class ImportWorker(QRunnable):
 								mi_dict["General"][key] = val
 					except Exception as e:
 						print(f"[ImportWorker] CLI-Fallback fehlgeschlagen: {e}")
+
+					# EXIF vom Quell-File
 					exif_dict = {}
 					try:
 						BASE_DIR = Path(__file__).resolve().parent.parent
@@ -152,13 +148,20 @@ class ImportWorker(QRunnable):
 						if not os.path.exists(exif_path):
 							exif_path = str(BASE_DIR / "exiftool_files" / "exiftool.pl")
 						with exiftool.ExifToolHelper(executable=exif_path) as et:
-							metadata = et.get_metadata(str(dest))
+							metadata = et.get_metadata(str(src_path))
 							if metadata:
 								exif_dict = metadata[0]
 					except Exception as e:
 						print(f"[ImportWorker] ExifTool Fehler: {e}")
 
-					# Media speichern
+					# Datei kopieren
+					print("COPY TO:", dest)
+					shutil.copy2(src_path, dest)
+
+					# Hash vom Ziel berechnen
+					f_hash = self.model.calculate_hash(str(dest))
+
+					# Media speichern (Metadaten vom Original, Hash vom Copy)
 					self.model.save_to_db(
 						str(dest),
 						dest.name,
