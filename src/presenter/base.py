@@ -72,7 +72,7 @@ class PresenterBase:
 		return json.loads(value)
 
 	def handle_nav_tab_change(self, index):
-		if not self.case_path and index not in (0, 5):
+		if not self.case_path and index not in (0, 7):
 			from PyQt6.QtWidgets import QMessageBox
 			QMessageBox.warning(
 				self.view,

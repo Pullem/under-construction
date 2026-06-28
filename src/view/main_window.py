@@ -92,6 +92,8 @@ class MainWindowMixin(QMainWindow):
 		self._build_case_tab()
 		self._build_import_tab()
 		self._build_metadata_tab()
+		self._build_ffprobe_tab()
+		self._build_ffmpeg_tab()
 		self._build_analysis_tab()
 		self._build_placeholder_tab("Export")
 		self._build_settings_tab()
@@ -236,6 +238,24 @@ class MainWindowMixin(QMainWindow):
 		)
 
 		self.nav_bar.addTab("Metadaten")
+		self.content_stack.addWidget(widget)
+
+	def _build_ffprobe_tab(self):
+		widget = QWidget()
+		layout = QVBoxLayout(widget)
+		label = QLabel("ffprobe\n\nNoch nicht implementiert")
+		label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		layout.addWidget(label)
+		self.nav_bar.addTab("ffprobe")
+		self.content_stack.addWidget(widget)
+
+	def _build_ffmpeg_tab(self):
+		widget = QWidget()
+		layout = QVBoxLayout(widget)
+		label = QLabel("ffmpeg\n\nNoch nicht implementiert")
+		label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		layout.addWidget(label)
+		self.nav_bar.addTab("ffmpeg")
 		self.content_stack.addWidget(widget)
 
 	def _on_meta_search(self, query):

@@ -127,6 +127,24 @@ class ImportWorker(QRunnable):
 					}
 					if not mi_dict:
 						mi_dict = {"General": {"imported_from": str(src_path)}}
+					# CLI-Fallback für Recorded_Location und file_creation_date_local
+					try:
+						import subprocess
+						for fmt, key in (
+							("General;%Recorded_Location%", "Recorded_Location"),
+							("General;%File_Creation_Date_Local%", "file_creation_date_local"),
+						):
+							r = subprocess.run(
+								["mediainfo", f"--Inform={fmt}", str(dest)],
+								capture_output=True, text=True, timeout=10
+							)
+							val = r.stdout.strip()
+							if val and "General" not in val:
+								if "General" not in mi_dict:
+									mi_dict["General"] = {}
+								mi_dict["General"][key] = val
+					except Exception as e:
+						print(f"[ImportWorker] CLI-Fallback fehlgeschlagen: {e}")
 					exif_dict = {}
 					try:
 						BASE_DIR = Path(__file__).resolve().parent.parent
