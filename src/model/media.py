@@ -43,27 +43,39 @@ class MediaMixin:
 			return
 
 		try:
-			cur = conn.cursor()
+			cur = conn.cursor(dictionary=True)
+			size = os.path.getsize(path)
+			md_json = json.dumps(mi_dict, ensure_ascii=False)
+			exif_json = json.dumps(exif_dict, ensure_ascii=False)
+
+			# Prüfen ob Hash bereits im selben Fall existiert
 			cur.execute(
-				"""
-				INSERT INTO media_files
-					(case_id, file_path, file_name, file_size, sha256_hash, metadata, exif_metadata)
-				VALUES (?, ?, ?, ?, ?, ?, ?)
-				ON DUPLICATE KEY UPDATE
-					file_name = VALUES(file_name),
-					metadata = VALUES(metadata),
-					exif_metadata = VALUES(exif_metadata)
-				""",
-				(
-					self.current_case_id,
-					path,
-					name,
-					os.path.getsize(path),
-					f_hash,
-					json.dumps(mi_dict, ensure_ascii=False),
-					json.dumps(exif_dict, ensure_ascii=False)
-				)
+				"SELECT id FROM media_files WHERE sha256_hash = ? AND case_id = ?",
+				(f_hash, self.current_case_id)
 			)
+			if cur.fetchone():
+				raise Exception(
+					"Datei wurde bereits in diesen Fall importiert (gleicher SHA256-Hash)."
+				)
+
+			insert = (
+				"INSERT INTO media_files "
+				"(case_id, file_path, file_name, file_size, sha256_hash, metadata, exif_metadata) "
+				"VALUES (?, ?, ?, ?, ?, ?, ?)"
+			)
+			try:
+				cur.execute(insert, (self.current_case_id, path, name, size, f_hash, md_json, exif_json))
+			except Exception as e:
+				if "Duplicate" in str(e) or "UNIQUE" in str(e):
+					# Migration: UNIQUE-Constraint durch normale Indizes ersetzen
+					cur.execute("ALTER TABLE media_files DROP INDEX sha256_hash")
+					# Index-Setup für bestehende DB nachziehen
+					cur.execute("ALTER TABLE media_files ADD INDEX idx_sha256_hash (sha256_hash)")
+					cur.execute("ALTER TABLE media_files ADD INDEX idx_case_hash (case_id, sha256_hash)")
+					conn.commit()
+					cur.execute(insert, (self.current_case_id, path, name, size, f_hash, md_json, exif_json))
+				else:
+					raise
 			conn.commit()
 		finally:
 			conn.close()
