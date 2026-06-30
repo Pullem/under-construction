@@ -21,28 +21,44 @@ def _guess_media_type(filename):
 
 def _extract_timestamp(metadata, exif):
 	ts = None
-	for src in (exif, metadata):
-		if not isinstance(src, dict):
-			continue
-		for key in ("DateTimeOriginal", "CreateDate", "Media Create Date",
-					"encoded_date", "com.apple.quicktime.creationdate",
-					"Creation Date", "File Modification Date/Time"):
-			val = src.get(key)
-			if val:
+
+	def _parse(val):
+		if not val:
+			return None
+		try:
+			val = str(val).replace("T", " ").split(".")[0].split("+")[0].split("Z")[0].strip()
+			for fmt in ("%Y-%m-%d %H:%M:%S", "%Y:%m:%d %H:%M:%S",
+						"%d.%m.%Y %H:%M", "%Y-%m-%dT%H:%M:%S"):
 				try:
-					val = str(val).replace("T", " ").split(".")[0].split("+")[0].split("Z")[0].strip()
-					for fmt in ("%Y-%m-%d %H:%M:%S", "%Y:%m:%d %H:%M:%S",
-								"%d.%m.%Y %H:%M", "%Y-%m-%dT%H:%M:%S"):
-						try:
-							ts = datetime.strptime(val[:19], fmt)
-							break
-						except ValueError:
-							continue
-					if ts:
-						break
-				except Exception:
+					return datetime.strptime(val[:19], fmt)
+				except ValueError:
 					continue
-	return ts
+		except Exception:
+			pass
+		return None
+
+	# EXIF-Daten (flaches Dict)
+	if isinstance(exif, dict):
+		for key in ("DateTimeOriginal", "CreateDate", "com.apple.quicktime.creationdate",
+					"Creation Date", "File Modification Date/Time",
+					"TrackCreateDate", "QuickTime:TrackCreateDate",
+					"MediaCreateDate", "QuickTime:MediaCreateDate"):
+			ts = _parse(exif.get(key))
+			if ts:
+				return ts
+
+	# MediaInfo-Metadaten (verschachtelt unter "General"/"Video"/"Audio")
+	if isinstance(metadata, dict):
+		for track_name in ("General", "Video", "Audio"):
+			track = metadata.get(track_name)
+			if isinstance(track, dict):
+				for key in ("encoded_date", "tagged_date", "file_creation_date",
+							"file_creation_date_local", "com.apple.quicktime.creationdate",
+							"TrackCreateDate", "MediaCreateDate"):
+					ts = _parse(track.get(key))
+					if ts:
+						return ts
+	return None
 
 
 class TimelineWindow(QDialog):
