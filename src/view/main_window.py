@@ -397,14 +397,12 @@ class MainWindowMixin(QMainWindow):
 		layout.addWidget(QLabel("<b>Auswertung</b>"))
 		layout.addSpacing(20)
 
-		btn_timeline = QPushButton("Zeitachsen-Analyse aktualisieren")
-		btn_timeline.setMinimumHeight(30)
+		btn_timeline = QPushButton("Zeitachsen-Analyse öffnen")
+		btn_timeline.setMinimumHeight(60)
 		btn_timeline.clicked.connect(self.open_timeline_requested.emit)
 		layout.addWidget(btn_timeline)
 
-		from ..timeline_window import TimelineWidget
-		self.timeline_widget = TimelineWidget()
-		layout.addWidget(self.timeline_widget, 1)
+		layout.addStretch()
 
 		self.nav_bar.addTab("Auswertung")
 		self.content_stack.addWidget(widget)
