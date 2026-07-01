@@ -52,8 +52,8 @@ def _extract_timestamp(metadata, exif):
 		for track_name in ("General", "Video", "Audio"):
 			track = metadata.get(track_name)
 			if isinstance(track, dict):
-				for key in ("encoded_date", "tagged_date", "file_creation_date",
-							"file_creation_date_local", "com.apple.quicktime.creationdate",
+				for key in ("file_creation_date_local", "encoded_date", "tagged_date",
+							"file_creation_date", "com.apple.quicktime.creationdate",
 							"TrackCreateDate", "MediaCreateDate"):
 					ts = _parse(track.get(key))
 					if ts:
@@ -107,6 +107,7 @@ class TimelineWidget(QWidget):
 	def _render(self):
 		self._scene.clear()
 		self._update_info()
+
 		items = []
 		ts_min, ts_max = None, None
 

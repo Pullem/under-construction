@@ -398,7 +398,7 @@ class MainWindowMixin(QMainWindow):
 		layout.addSpacing(20)
 
 		btn_timeline = QPushButton("Zeitachsen-Analyse aktualisieren")
-		btn_timeline.setMinimumHeight(60)
+		btn_timeline.setMinimumHeight(30)
 		btn_timeline.clicked.connect(self.open_timeline_requested.emit)
 		layout.addWidget(btn_timeline)
 
