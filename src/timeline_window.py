@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QGraphicsView, QGraphicsScene,
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene,
 							 QGraphicsRectItem, QGraphicsTextItem, QGraphicsLineItem,
 							 QGraphicsSimpleTextItem, QLabel, QHBoxLayout, QSizePolicy)
 from PyQt6.QtCore import Qt, QRectF, QPointF
@@ -61,33 +61,17 @@ def _extract_timestamp(metadata, exif):
 	return None
 
 
-class TimelineWindow(QDialog):
-	def __init__(self, media_files, case_data, parent=None):
+class TimelineWidget(QWidget):
+	def __init__(self, parent=None):
 		super().__init__(parent)
-		self.setWindowTitle("Forensische Zeitachsen-Analyse")
-		self.resize(1100, 600)
-		self._media_files = media_files
-		self._case_data = case_data or {}
+		self._media_files = []
+		self._case_data = {}
 
-		self._build_ui()
-		self._render()
-
-	def _build_ui(self):
 		layout = QVBoxLayout(self)
+		layout.setContentsMargins(0, 0, 0, 0)
 
-		info_layout = QHBoxLayout()
-		incident_at = self._case_data.get("incident_at")
-		incident_until = self._case_data.get("incident_until")
-		info_parts = []
-		if incident_at:
-			info_parts.append(f"Tatzeit von: {incident_at}")
-		if incident_until:
-			info_parts.append(f"Tatzeit bis: {incident_until}")
-		if info_parts:
-			info_layout.addWidget(QLabel(" | ".join(info_parts)))
-		info_layout.addStretch()
-		info_layout.addWidget(QLabel(f"{len(self._media_files)} Mediendateien"))
-		layout.addLayout(info_layout)
+		self._info_label = QLabel()
+		layout.addWidget(self._info_label)
 
 		self._scene = QGraphicsScene()
 		self._view = QGraphicsView(self._scene)
@@ -102,8 +86,27 @@ class TimelineWindow(QDialog):
 		self._legend_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
 		layout.addWidget(self._legend_widget)
 
+	def set_data(self, media_files, case_data):
+		self._media_files = media_files or []
+		self._case_data = case_data or {}
+		self._render()
+
+	def _update_info(self):
+		incident_at = self._case_data.get("incident_at")
+		incident_until = self._case_data.get("incident_until")
+		parts = []
+		if incident_at:
+			parts.append(f"Tatzeit von: {incident_at}")
+		if incident_until:
+			parts.append(f"Tatzeit bis: {incident_until}")
+		if parts:
+			parts.append("|")
+		parts.append(f"{len(self._media_files)} Mediendateien")
+		self._info_label.setText(" ".join(parts))
+
 	def _render(self):
 		self._scene.clear()
+		self._update_info()
 		items = []
 		ts_min, ts_max = None, None
 
