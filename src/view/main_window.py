@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 							 QListWidget, QListWidgetItem, QLabel, QLineEdit,
 							 QPushButton, QTabWidget, QTabBar, QTextEdit,
 							 QStackedWidget, QMessageBox, QStyle, QStyleOptionTab,
-							 QDateEdit, QTimeEdit, QCheckBox)
+							 QDateEdit, QTimeEdit, QCheckBox, QComboBox)
 from PyQt6.QtCore import pyqtSignal, Qt, QSize, QDate, QTime, QDateTime
 from PyQt6.QtGui import QPixmap, QPainter, QColor
 
@@ -397,10 +397,21 @@ class MainWindowMixin(QMainWindow):
 		layout.addWidget(QLabel("<b>Auswertung</b>"))
 		layout.addSpacing(10)
 
-		btn_timeline = QPushButton("Zeitachsen-Analyse aktualisieren")
-		btn_timeline.setMinimumHeight(40)
+		toolbar = QHBoxLayout()
+		btn_timeline = QPushButton("Zeitachsen-Analyse")
 		btn_timeline.clicked.connect(self.open_timeline_requested.emit)
-		layout.addWidget(btn_timeline)
+		toolbar.addWidget(btn_timeline)
+
+		toolbar.addStretch()
+
+		toolbar.addWidget(QLabel("Offset:"))
+		self.cbo_offset = QComboBox()
+		self.cbo_offset.addItem("Winter UTC+1", 1)
+		self.cbo_offset.addItem("Sommer UTC+2", 2)
+		self.cbo_offset.currentIndexChanged.connect(self.open_timeline_requested.emit)
+		toolbar.addWidget(self.cbo_offset)
+
+		layout.addLayout(toolbar)
 
 		from ..timeline_window import TimelineWidget
 		self.timeline_widget = TimelineWidget()

@@ -85,6 +85,7 @@ class TimelineWidget(QWidget):
 		super().__init__(parent)
 		self._media_files = []
 		self._case_data = {}
+		self._offset_hours = 0
 
 		layout = QVBoxLayout(self)
 		layout.setContentsMargins(0, 0, 0, 0)
@@ -110,9 +111,10 @@ class TimelineWidget(QWidget):
 		self._legend_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
 		layout.addWidget(self._legend_widget)
 
-	def refresh(self, media_files, case_data):
+	def refresh(self, media_files, case_data, offset_hours=0):
 		self._media_files = media_files
 		self._case_data = case_data or {}
+		self._offset_hours = offset_hours
 		self._render()
 
 	def _render(self):
@@ -133,6 +135,8 @@ class TimelineWidget(QWidget):
 			meta = f.get("metadata", {})
 			exif = f.get("exif_metadata", {})
 			ts = _extract_timestamp(meta, exif)
+			if ts and self._offset_hours:
+				ts += timedelta(hours=self._offset_hours)
 			mtype = _guess_media_type(f.get("file_name", ""))
 			if ts:
 				if ts_min is None or ts < ts_min:
@@ -186,11 +190,15 @@ class TimelineWidget(QWidget):
 		if crime_at and isinstance(crime_at, str):
 			try:
 				crime_at = datetime.strptime(crime_at[:19], "%Y-%m-%d %H:%M:%S")
+				if self._offset_hours:
+					crime_at += timedelta(hours=self._offset_hours)
 			except ValueError:
 				crime_at = None
 		if crime_until and isinstance(crime_until, str):
 			try:
 				crime_until = datetime.strptime(crime_until[:19], "%Y-%m-%d %H:%M:%S")
+				if self._offset_hours:
+					crime_until += timedelta(hours=self._offset_hours)
 			except ValueError:
 				crime_until = None
 
@@ -202,6 +210,11 @@ class TimelineWidget(QWidget):
 			band.setPen(QPen(QColor(255, 50, 50, 120), 1, Qt.PenStyle.DashLine))
 			band.setZValue(-1)
 			self._scene.addItem(band)
+			# vertikale rote Linie am Tatzeit-Beginn
+			line = QGraphicsLineItem(x1, top_margin, x1, top_margin + lane_h * len(lanes))
+			line.setPen(QPen(QColor(255, 30, 30), 2))
+			line.setZValue(1)
+			self._scene.addItem(line)
 
 		dot_size = 12.0
 		for ts, mtype, fname in items:

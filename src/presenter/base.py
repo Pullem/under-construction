@@ -177,7 +177,10 @@ class PresenterBase:
 					except (json.JSONDecodeError, TypeError):
 						f[col] = {}
 		if hasattr(self.view, 'timeline_widget'):
-			self.view.timeline_widget.refresh(media_files, self.model.current_case)
+			offset = 0
+			if hasattr(self.view, 'cbo_offset'):
+				offset = self.view.cbo_offset.currentData() or 0
+			self.view.timeline_widget.refresh(media_files, self.model.current_case, offset_hours=offset)
 
 	def refresh_case_list(self):
 		cases = self.model.load_cases()
