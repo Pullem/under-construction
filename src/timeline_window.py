@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QGraphicsView, QGraphicsScene,
-							 QGraphicsRectItem, QGraphicsTextItem, QGraphicsLineItem,
-							 QGraphicsSimpleTextItem, QLabel, QHBoxLayout, QSizePolicy)
-from PyQt6.QtCore import Qt, QRectF, QPointF
-from PyQt6.QtGui import QColor, QPen, QBrush, QFont, QPainter, QLinearGradient
+							 QGraphicsRectItem, QGraphicsLineItem,
+							 QGraphicsSimpleTextItem, QLabel, QHBoxLayout, QWidget)
+from PyQt6.QtCore import Qt, QRectF
+from PyQt6.QtGui import QColor, QPen, QBrush, QFont, QPainter
 
 
 _LANE_NAMES = {0: "Foto", 1: "Video", 2: "Sonstige"}
@@ -20,8 +20,6 @@ def _guess_media_type(filename):
 
 
 def _extract_timestamp(metadata, exif):
-	ts = None
-
 	def _parse(val):
 		if not val:
 			return None
@@ -37,57 +35,67 @@ def _extract_timestamp(metadata, exif):
 			pass
 		return None
 
-	# EXIF-Daten (flaches Dict)
+	# 1. MediaInfo-Tracks (Priorität General > Video > Audio > Other)
+	if isinstance(metadata, dict):
+		for track_name in ("General", "Video", "Audio", "Other"):
+			track = metadata.get(track_name)
+			if isinstance(track, dict):
+				for key in ("encoded_date", "tagged_date"):
+					ts = _parse(track.get(key))
+					if ts:
+						return ts
+
+	# 2. ExifTool-Daten
 	if isinstance(exif, dict):
-		for key in ("DateTimeOriginal", "CreateDate", "com.apple.quicktime.creationdate",
-					"Creation Date", "File Modification Date/Time",
-					"TrackCreateDate", "QuickTime:TrackCreateDate",
-					"MediaCreateDate", "QuickTime:MediaCreateDate"):
+		for key in ("mediacreatedate", "MediaCreateDate",
+					"QuickTime:mediacreatedate", "QuickTime:MediaCreateDate",
+					"datetimeoriginal", "DateTimeOriginal",
+					"EXIF:datetimeoriginal", "EXIF:DateTimeOriginal",
+					"timestamp", "Timestamp",
+					"MakerNotes:timestamp", "MakerNotes:Timestamp"):
 			ts = _parse(exif.get(key))
 			if ts:
 				return ts
 
-	# MediaInfo-Metadaten (verschachtelt unter "General"/"Video"/"Audio")
+	# 3. Fallback: weitere MediaInfo-Datumsfelder
 	if isinstance(metadata, dict):
-		for track_name in ("General", "Video", "Audio"):
+		for track_name in ("General", "Video", "Audio", "Other"):
 			track = metadata.get(track_name)
 			if isinstance(track, dict):
-				for key in ("encoded_date", "tagged_date", "file_creation_date",
-							"file_creation_date_local", "com.apple.quicktime.creationdate",
-							"TrackCreateDate", "MediaCreateDate"):
+				for key in ("file_creation_date", "file_creation_date_local",
+							"creation_date", "TrackCreateDate", "MediaCreateDate"):
 					ts = _parse(track.get(key))
 					if ts:
 						return ts
+
+	# 4. Fallback: weitere ExifTool-Datumsfelder
+	if isinstance(exif, dict):
+		for key in ("CreateDate", "com.apple.quicktime.creationdate",
+					"Creation Date", "File Modification Date/Time",
+					"TrackCreateDate", "QuickTime:TrackCreateDate"):
+			ts = _parse(exif.get(key))
+			if ts:
+				return ts
+
 	return None
 
 
-class TimelineWindow(QDialog):
-	def __init__(self, media_files, case_data, parent=None):
+class TimelineWidget(QWidget):
+	def __init__(self, parent=None):
 		super().__init__(parent)
-		self.setWindowTitle("Forensische Zeitachsen-Analyse")
-		self.resize(1100, 600)
-		self._media_files = media_files
-		self._case_data = case_data or {}
+		self._media_files = []
+		self._case_data = {}
 
-		self._build_ui()
-		self._render()
-
-	def _build_ui(self):
 		layout = QVBoxLayout(self)
+		layout.setContentsMargins(0, 0, 0, 0)
 
-		info_layout = QHBoxLayout()
-		incident_at = self._case_data.get("incident_at")
-		incident_until = self._case_data.get("incident_until")
-		info_parts = []
-		if incident_at:
-			info_parts.append(f"Tatzeit von: {incident_at}")
-		if incident_until:
-			info_parts.append(f"Tatzeit bis: {incident_until}")
-		if info_parts:
-			info_layout.addWidget(QLabel(" | ".join(info_parts)))
-		info_layout.addStretch()
-		info_layout.addWidget(QLabel(f"{len(self._media_files)} Mediendateien"))
-		layout.addLayout(info_layout)
+		self._info_layout = QHBoxLayout()
+		self._lbl_info = QLabel()
+		self._lbl_count = QLabel()
+		self._info_layout.addWidget(self._lbl_info)
+		self._info_layout.addStretch()
+		self._info_layout.addWidget(self._lbl_count)
+		layout.addLayout(self._info_layout)
 
 		self._scene = QGraphicsScene()
 		self._view = QGraphicsView(self._scene)
@@ -102,10 +110,24 @@ class TimelineWindow(QDialog):
 		self._legend_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
 		layout.addWidget(self._legend_widget)
 
+	def refresh(self, media_files, case_data):
+		self._media_files = media_files
+		self._case_data = case_data or {}
+		self._render()
+
 	def _render(self):
 		self._scene.clear()
 		items = []
 		ts_min, ts_max = None, None
+
+		incident_at = self._case_data.get("incident_at")
+		incident_until = self._case_data.get("incident_until")
+		info_parts = []
+		if incident_at:
+			info_parts.append(f"Tatzeit von: {incident_at}")
+		if incident_until:
+			info_parts.append(f"Tatzeit bis: {incident_until}")
+		self._lbl_info.setText(" | ".join(info_parts))
 
 		for f in self._media_files:
 			meta = f.get("metadata", {})
@@ -118,6 +140,8 @@ class TimelineWindow(QDialog):
 				if ts_max is None or ts > ts_max:
 					ts_max = ts
 				items.append((ts, mtype, f.get("file_name", "")))
+
+		self._lbl_count.setText(f"{len(self._media_files)} Mediendateien")
 
 		if not items:
 			self._scene.addText("Keine Mediendateien mit Zeitstempeln gefunden.")
@@ -157,8 +181,8 @@ class TimelineWindow(QDialog):
 			label.setFont(f)
 			self._scene.addItem(label)
 
-		crime_at = self._case_data.get("incident_at")
-		crime_until = self._case_data.get("incident_until")
+		crime_at = incident_at
+		crime_until = incident_until
 		if crime_at and isinstance(crime_at, str):
 			try:
 				crime_at = datetime.strptime(crime_at[:19], "%Y-%m-%d %H:%M:%S")
@@ -214,3 +238,14 @@ class TimelineWindow(QDialog):
 			"<span style='color:#9E9E9E;'>\u25a0 Sonstige</span> &nbsp;"
 			"<span style='color:#ff3232;'>\u2588 Tatzeit</span>"
 		)
+
+
+class TimelineWindow(QDialog):
+	def __init__(self, media_files, case_data, parent=None):
+		super().__init__(parent)
+		self.setWindowTitle("Forensische Zeitachsen-Analyse")
+		self.resize(1100, 600)
+		layout = QVBoxLayout(self)
+		self._widget = TimelineWidget()
+		layout.addWidget(self._widget)
+		self._widget.refresh(media_files, case_data)

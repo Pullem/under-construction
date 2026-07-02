@@ -110,6 +110,7 @@ class PresenterBase:
 			self.view.set_case_name(case_name)
 			self.view.clear_metadata_display()
 			self.refresh_ui_list()
+			self.handle_open_timeline()
 
 	def handle_create_case(self, name, desc, incident_at, incident_until=None):
 		try:
@@ -124,6 +125,7 @@ class PresenterBase:
 			self.view.setWindowTitle(f"Forensic Analyzer – {name}")
 			self.refresh_ui_list()
 			self.refresh_case_list()
+			self.handle_open_timeline()
 		except Exception as e:
 			print(f"Fehler beim Erstellen des Falls: {e}")
 
@@ -149,7 +151,6 @@ class PresenterBase:
 		QMessageBox.information(self.view, "Gespeichert", "Einstellungen wurden gespeichert.")
 
 	def handle_open_timeline(self):
-		from ..timeline_window import TimelineWindow
 		if not self.model.current_case:
 			from PyQt6.QtWidgets import QMessageBox
 			QMessageBox.warning(self.view, "Kein Fall aktiv",
@@ -175,8 +176,8 @@ class PresenterBase:
 						f[col] = json.loads(f[col])
 					except (json.JSONDecodeError, TypeError):
 						f[col] = {}
-		win = TimelineWindow(media_files, self.model.current_case, self.view)
-		win.exec()
+		if hasattr(self.view, 'timeline_widget'):
+			self.view.timeline_widget.refresh(media_files, self.model.current_case)
 
 	def refresh_case_list(self):
 		cases = self.model.load_cases()
