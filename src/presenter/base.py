@@ -1,5 +1,22 @@
 import json
+import os
 from PyQt6.QtCore import QThreadPool, Qt
+
+
+def _guess_is_video(filename):
+	name = filename.lower()
+	return name.endswith((".mp4", ".mov", ".avi", ".mkv", ".webm", ".mts"))
+
+def _guess_is_foto(filename):
+	name = filename.lower()
+	return name.endswith((".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"))
+
+def _guess_media_type(filename):
+	if _guess_is_foto(filename):
+		return "Foto"
+	if _guess_is_video(filename):
+		return "Video"
+	return "Sonstige"
 
 
 class PresenterBase:
@@ -180,7 +197,53 @@ class PresenterBase:
 			offset = 0
 			if hasattr(self.view, 'cbo_offset'):
 				offset = self.view.cbo_offset.currentData() or 0
-			self.view.timeline_widget.refresh(media_files, self.model.current_case, offset_hours=offset)
+			zoom = 100
+			if hasattr(self.view, 'slider_zoom'):
+				zoom = self.view.slider_zoom.value()
+			thumb_dir = self.model.current_case_path / "thumbnails" if self.model.current_case_path else None
+			# Thumbnails extrahieren für Videos und Fotos
+			for f in media_files:
+				fname = f.get("file_name", "")
+				meta = f.get("metadata", {})
+				fpath = f.get("file_path", "")
+				if not fpath or not os.path.exists(fpath):
+					continue
+				mtype = _guess_media_type(fname)
+				if mtype == "Video":
+					general = meta.get("General", {})
+					dur_str = general.get("duration", "0")
+					try:
+						dur = float(dur_str)
+					except (ValueError, TypeError):
+						dur = 0
+					if dur > 0 and thumb_dir:
+						# fixes Intervall abhängig von der Dauer
+						if dur <= 60:
+							interval = 2
+						elif dur <= 300:
+							interval = 10
+						elif dur <= 3600:
+							interval = 30
+						else:
+							interval = 60
+						thumbnails = self.model.extract_thumbnails(fpath, interval, thumb_dir)
+						f["_thumbnails"] = thumbnails
+					else:
+						f["_thumbnails"] = []
+					f["_duration_sec"] = dur
+				elif mtype == "Foto":
+					# Einzel-Thumbnail für Fotos über vorhandene Methode
+					thumb_path = self.model.get_thumbnail(fpath)
+					if thumb_path and os.path.exists(thumb_path):
+						f["_thumbnails"] = [{"time_sec": 0, "path": thumb_path}]
+					else:
+						f["_thumbnails"] = []
+					f["_duration_sec"] = 0
+				else:
+					f["_thumbnails"] = []
+					f["_duration_sec"] = 0
+			self.view.timeline_widget.refresh(media_files, self.model.current_case,
+											 offset_hours=offset, zoom_pct=zoom)
 
 	def refresh_case_list(self):
 		cases = self.model.load_cases()

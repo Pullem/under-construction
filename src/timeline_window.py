@@ -1,13 +1,14 @@
+import os
+import math
 from datetime import datetime, timedelta
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QGraphicsView, QGraphicsScene,
-							 QGraphicsRectItem, QGraphicsLineItem,
+							 QGraphicsRectItem, QGraphicsLineItem, QGraphicsPixmapItem,
 							 QGraphicsSimpleTextItem, QLabel, QHBoxLayout, QWidget)
 from PyQt6.QtCore import Qt, QRectF
-from PyQt6.QtGui import QColor, QPen, QBrush, QFont, QPainter
+from PyQt6.QtGui import QColor, QPen, QBrush, QFont, QPainter, QPixmap
 
 
-_LANE_NAMES = {0: "Foto", 1: "Video", 2: "Sonstige"}
-_LANE_COLORS = {"Foto": QColor("#4FC3F7"), "Video": QColor("#66BB6A"), "Sonstige": QColor("#9E9E9E")}
+_LANE_COLORS = {"Foto": QColor("#4FC3F7"), "Sonstige": QColor("#9E9E9E")}
 
 
 def _guess_media_type(filename):
@@ -35,7 +36,6 @@ def _extract_timestamp(metadata, exif):
 			pass
 		return None
 
-	# 1. MediaInfo-Tracks (Priorität General > Video > Audio > Other)
 	if isinstance(metadata, dict):
 		for track_name in ("General", "Video", "Audio", "Other"):
 			track = metadata.get(track_name)
@@ -45,7 +45,6 @@ def _extract_timestamp(metadata, exif):
 					if ts:
 						return ts
 
-	# 2. ExifTool-Daten
 	if isinstance(exif, dict):
 		for key in ("mediacreatedate", "MediaCreateDate",
 					"QuickTime:mediacreatedate", "QuickTime:MediaCreateDate",
@@ -57,7 +56,6 @@ def _extract_timestamp(metadata, exif):
 			if ts:
 				return ts
 
-	# 3. Fallback: weitere MediaInfo-Datumsfelder
 	if isinstance(metadata, dict):
 		for track_name in ("General", "Video", "Audio", "Other"):
 			track = metadata.get(track_name)
@@ -68,7 +66,6 @@ def _extract_timestamp(metadata, exif):
 					if ts:
 						return ts
 
-	# 4. Fallback: weitere ExifTool-Datumsfelder
 	if isinstance(exif, dict):
 		for key in ("CreateDate", "com.apple.quicktime.creationdate",
 					"Creation Date", "File Modification Date/Time",
@@ -86,6 +83,8 @@ class TimelineWidget(QWidget):
 		self._media_files = []
 		self._case_data = {}
 		self._offset_hours = 0
+		self._zoom_pct = 100
+		self._open_video_requested = None
 
 		layout = QVBoxLayout(self)
 		layout.setContentsMargins(0, 0, 0, 0)
@@ -111,16 +110,21 @@ class TimelineWidget(QWidget):
 		self._legend_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
 		layout.addWidget(self._legend_widget)
 
-	def refresh(self, media_files, case_data, offset_hours=0):
+	def refresh(self, media_files, case_data, offset_hours=0, zoom_pct=100):
 		self._media_files = media_files
 		self._case_data = case_data or {}
 		self._offset_hours = offset_hours
+		self._zoom_pct = zoom_pct
 		self._render()
 
 	def _render(self):
 		self._scene.clear()
-		items = []
-		ts_min, ts_max = None, None
+		px_per_sec = 2.0 * (self._zoom_pct / 100.0)
+		lane_h = 80.0
+		ruler_h = 30.0
+		lane_labels_w = 120.0
+		thumb_max_w = 120.0
+		thumb_max_h = lane_h - 8
 
 		incident_at = self._case_data.get("incident_at")
 		incident_until = self._case_data.get("incident_until")
@@ -130,6 +134,13 @@ class TimelineWidget(QWidget):
 		if incident_until:
 			info_parts.append(f"Tatzeit bis: {incident_until}")
 		self._lbl_info.setText(" | ".join(info_parts))
+		self._lbl_count.setText(f"{len(self._media_files)} Mediendateien")
+
+		# Kategorisieren + Zeitstempel extrahieren
+		fotos = []
+		videos = []
+		sonstige = []
+		ts_min, ts_max = None, None
 
 		for f in self._media_files:
 			meta = f.get("metadata", {})
@@ -138,16 +149,29 @@ class TimelineWidget(QWidget):
 			if ts and self._offset_hours:
 				ts += timedelta(hours=self._offset_hours)
 			mtype = _guess_media_type(f.get("file_name", ""))
-			if ts:
-				if ts_min is None or ts < ts_min:
-					ts_min = ts
-				if ts_max is None or ts > ts_max:
-					ts_max = ts
-				items.append((ts, mtype, f.get("file_name", "")))
+			f["_ts"] = ts
+			if not ts:
+				continue
+			if ts_min is None or ts < ts_min:
+				ts_min = ts
+			if ts_max is None or ts > ts_max:
+				# Für Videos Endzeit berücksichtigen
+				dur = f.get("_duration_sec", 0)
+				ts_end = ts + timedelta(seconds=dur) if dur else ts
+				if ts_max is None or ts_end > ts_max:
+					ts_max = ts_end
+			if mtype == "Foto":
+				fotos.append(f)
+			elif mtype == "Video":
+				videos.append(f)
+			else:
+				sonstige.append(f)
 
-		self._lbl_count.setText(f"{len(self._media_files)} Mediendateien")
+		if not fotos and not videos and not sonstige:
+			self._scene.addText("Keine Mediendateien mit Zeitstempeln gefunden.")
+			return
 
-		if not items:
+		if ts_min is None or ts_max is None:
 			self._scene.addText("Keine Mediendateien mit Zeitstempeln gefunden.")
 			return
 
@@ -156,35 +180,48 @@ class TimelineWidget(QWidget):
 			ts_max += timedelta(hours=1)
 
 		span = (ts_max - ts_min).total_seconds()
-		margin = span * 0.05
+		margin = span * 0.03
 		ts_start = ts_min - timedelta(seconds=margin)
 		ts_end = ts_max + timedelta(seconds=margin)
 		total_sec = (ts_end - ts_start).total_seconds()
 
-		chart_w = 900.0
-		lane_h = 80.0
-		top_margin = 60.0
-		lane_labels_w = 100.0
+		chart_total_x = total_sec * px_per_sec
 
 		def x_pos(ts):
-			return lane_labels_w + ((ts - ts_start).total_seconds() / total_sec) * chart_w
+			rel = (ts - ts_start).total_seconds() / total_sec
+			return lane_labels_w + rel * chart_total_x
 
-		lanes = {"Foto": 0, "Video": 1, "Sonstige": 2}
-		for mtype, lane in lanes.items():
-			y = top_margin + lane * lane_h
-			bg = QGraphicsRectItem(QRectF(0, y, lane_labels_w + chart_w, lane_h))
-			bg.setBrush(QBrush(QColor("#2a2a2a" if lane % 2 == 0 else "#222222")))
+		# Lane-Liste aufbauen
+		lane_configs = []
+		lane_configs.append(("Foto", fotos, "foto"))
+		vid_lane_idx = 1
+		for v in videos:
+			name = v.get("file_name", f"Video {vid_lane_idx}")
+			lane_configs.append((name, [v], "video"))
+			vid_lane_idx += 1
+		lane_configs.append(("Sonstige", sonstige, "sonstige"))
+
+		num_lanes = len(lane_configs)
+		scene_h = ruler_h + num_lanes * lane_h + 50
+		scene_w = lane_labels_w + chart_total_x
+
+		# Hintergrund der Spuren
+		for i, (label, _, ltype) in enumerate(lane_configs):
+			y = ruler_h + i * lane_h
+			bg = QGraphicsRectItem(QRectF(0, y, scene_w, lane_h))
+			bg.setBrush(QBrush(QColor("#2a2a2a" if i % 2 == 0 else "#222222")))
 			bg.setPen(QPen(Qt.PenStyle.NoPen))
 			self._scene.addItem(bg)
 
-			label = QGraphicsSimpleTextItem(mtype)
-			label.setPos(4, y + lane_h / 2 - 8)
-			label.setBrush(QBrush(QColor("#888888")))
-			f = QFont("Segoe UI", 9)
+			lt = QGraphicsSimpleTextItem(label)
+			lt.setPos(4, y + lane_h / 2 - 8)
+			lt.setBrush(QBrush(QColor("#888888")))
+			f = QFont("Segoe UI", 8)
 			f.setBold(True)
-			label.setFont(f)
-			self._scene.addItem(label)
+			lt.setFont(f)
+			self._scene.addItem(lt)
 
+		# Tatzeit-Bereich
 		crime_at = incident_at
 		crime_until = incident_until
 		if crime_at and isinstance(crime_at, str):
@@ -205,46 +242,123 @@ class TimelineWidget(QWidget):
 		if crime_at:
 			x1 = x_pos(crime_at)
 			x2 = x_pos(crime_until) if crime_until else x1 + 20
-			band = QGraphicsRectItem(QRectF(x1, top_margin, x2 - x1, lane_h * len(lanes)))
+			band = QGraphicsRectItem(QRectF(x1, ruler_h, x2 - x1, num_lanes * lane_h))
 			band.setBrush(QBrush(QColor(255, 50, 50, 30)))
 			band.setPen(QPen(QColor(255, 50, 50, 120), 1, Qt.PenStyle.DashLine))
 			band.setZValue(-1)
 			self._scene.addItem(band)
-			# vertikale rote Linie am Tatzeit-Beginn
-			line = QGraphicsLineItem(x1, top_margin, x1, top_margin + lane_h * len(lanes))
+			line = QGraphicsLineItem(x1, ruler_h, x1, ruler_h + num_lanes * lane_h)
 			line.setPen(QPen(QColor(255, 30, 30), 2))
 			line.setZValue(1)
 			self._scene.addItem(line)
 
-		dot_size = 12.0
-		for ts, mtype, fname in items:
-			lane = lanes.get(mtype, 2)
-			y = top_margin + lane * lane_h + lane_h / 2 - dot_size / 2
-			x = x_pos(ts)
-			dot = QGraphicsRectItem(QRectF(x - dot_size / 2, y, dot_size, dot_size))
-			color = _LANE_COLORS.get(mtype, QColor("#9E9E9E"))
-			dot.setBrush(QBrush(color))
-			dot.setPen(QPen(QColor("#ffffff"), 1))
-			dot.setToolTip(f"{fname}\n{ts}")
-			self._scene.addItem(dot)
+		# Fotos und Sonstige als Punkte/Thumbnails zeichnen
+		for i, (label, items, ltype) in enumerate(lane_configs):
+			y = ruler_h + i * lane_h
+			for f in items:
+				ts = f.get("_ts")
+				if not ts:
+					continue
+				x = x_pos(ts)
+				if ltype == "foto":
+					thumbs = f.get("_thumbnails", [])
+					if thumbs:
+						tp = thumbs[0]["path"]
+						if os.path.exists(tp):
+							pix = QPixmap(tp)
+							if not pix.isNull():
+								scale = min(thumb_max_w / pix.width(), thumb_max_h / pix.height(), 1.0)
+								pw = int(pix.width() * scale)
+								ph = int(pix.height() * scale)
+								item = QGraphicsPixmapItem(pix.scaled(pw, ph, Qt.AspectRatioMode.KeepAspectRatio))
+								item.setPos(x - pw / 2, y + (lane_h - ph) / 2)
+								item.setToolTip(f"{f.get('file_name','')}\n{ts}")
+								self._scene.addItem(item)
+								continue
+					dot = QGraphicsRectItem(QRectF(x - 5, y + lane_h / 2 - 5, 10, 10))
+					dot.setBrush(QBrush(_LANE_COLORS.get("Foto", QColor("#4FC3F7"))))
+					dot.setPen(QPen(QColor("#ffffff"), 1))
+					dot.setToolTip(f"{f.get('file_name','')}\n{ts}")
+					self._scene.addItem(dot)
+				elif ltype == "sonstige":
+					dot = QGraphicsRectItem(QRectF(x - 5, y + lane_h / 2 - 5, 10, 10))
+					dot.setBrush(QBrush(_LANE_COLORS.get("Sonstige", QColor("#9E9E9E"))))
+					dot.setPen(QPen(QColor("#ffffff"), 1))
+					dot.setToolTip(f"{f.get('file_name','')}\n{ts}")
+					self._scene.addItem(dot)
 
-		num_ticks = max(5, int(chart_w / 120))
+		# Video-Filmstreifen zeichnen
+		for i, (label, items, ltype) in enumerate(lane_configs):
+			if ltype != "video" or not items:
+				continue
+			y = ruler_h + i * lane_h
+			dur = items[0].get("_duration_sec", 0)
+			ts = items[0].get("_ts")
+			if dur <= 0 or not ts:
+				continue
+			ts_end = ts + timedelta(seconds=dur)
+			x_start = x_pos(ts)
+			x_end = x_pos(ts_end)
+
+			# Hintergrund-Balken für die Videodauer
+			bar = QGraphicsRectItem(QRectF(x_start, y, x_end - x_start, lane_h))
+			bar.setBrush(QBrush(QColor(102, 187, 106, 40)))
+			bar.setPen(QPen(QColor("#66BB6A"), 1))
+			self._scene.addItem(bar)
+
+			# Thumbnails im Filmstreifen
+			thumbs = items[0].get("_thumbnails", [])
+			thumb_gap_px = 40.0 * (self._zoom_pct / 100.0)
+			last_x = -9999
+			for t in thumbs:
+				tx = x_start + t["time_sec"] * px_per_sec
+				if tx < x_start - 5 or tx > x_end + 5:
+					continue
+				if tx - last_x < thumb_gap_px:
+					continue
+				last_x = tx
+				tp = t["path"]
+				if not os.path.exists(tp):
+					continue
+				pix = QPixmap(tp)
+				if pix.isNull():
+					continue
+				scale = min(thumb_max_w / pix.width(), thumb_max_h / pix.height(), 1.0)
+				pw = int(pix.width() * scale)
+				ph = int(pix.height() * scale)
+				pitem = QGraphicsPixmapItem(pix.scaled(pw, ph, Qt.AspectRatioMode.KeepAspectRatio))
+				pitem.setPos(tx - pw / 2, y + (lane_h - ph) / 2)
+				pitem.setToolTip(f"{items[0].get('file_name','')}\n{timedelta(seconds=int(t['time_sec']))}")
+				self._scene.addItem(pitem)
+
+		# Zeitraster oben
+		ruler_y = 0
+		ruler_bg = QGraphicsRectItem(QRectF(0, 0, scene_w, ruler_h))
+		ruler_bg.setBrush(QBrush(QColor("#1a1a1a")))
+		ruler_bg.setPen(QPen(Qt.PenStyle.NoPen))
+		self._scene.addItem(ruler_bg)
+
+		num_ticks = max(10, int(chart_total_x / 100))
 		step = total_sec / num_ticks
 		for i in range(num_ticks + 1):
 			t = ts_start + timedelta(seconds=i * step)
 			x = x_pos(t)
-			line = QGraphicsLineItem(x, top_margin, x, top_margin + lane_h * len(lanes))
+			line = QGraphicsLineItem(x, ruler_h, x, ruler_h + num_lanes * lane_h)
 			line.setPen(QPen(QColor("#444444"), 0.5))
 			line.setZValue(-2)
 			self._scene.addItem(line)
+			# Tick auf dem Ruler
+			tick = QGraphicsLineItem(x, ruler_y + ruler_h - 6, x, ruler_y + ruler_h)
+			tick.setPen(QPen(QColor("#aaaaaa"), 1))
+			self._scene.addItem(tick)
 			label = QGraphicsSimpleTextItem(t.strftime("%d.%m.%Y\n%H:%M"))
-			label.setPos(x - 25, top_margin + lane_h * len(lanes) + 4)
-			label.setBrush(QBrush(QColor("#888888")))
+			label.setPos(x - 30, ruler_y + 2)
+			label.setBrush(QBrush(QColor("#aaaaaa")))
 			f = QFont("Segoe UI", 7)
 			label.setFont(f)
 			self._scene.addItem(label)
 
-		self._scene.setSceneRect(0, 0, lane_labels_w + chart_w, top_margin + lane_h * len(lanes) + 50)
+		self._scene.setSceneRect(0, 0, scene_w, scene_h)
 		self._legend_widget.setText(
 			"<span style='color:#4FC3F7;'>\u25a0 Foto</span> &nbsp;"
 			"<span style='color:#66BB6A;'>\u25a0 Video</span> &nbsp;"

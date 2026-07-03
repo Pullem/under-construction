@@ -80,6 +80,47 @@ class MediaMixin:
 		finally:
 			conn.close()
 
+	def extract_thumbnails(self, filepath, interval_sec, thumb_dir):
+		thumb_dir = Path(thumb_dir)
+		thumb_dir.mkdir(parents=True, exist_ok=True)
+		f_hash = self.calculate_hash(filepath)[:12]
+
+		cap = cv2.VideoCapture(str(filepath))
+		if not cap.isOpened():
+			return []
+
+		fps = cap.get(cv2.CAP_PROP_FPS)
+		total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+		duration = total_frames / fps if fps > 0 else 0
+		if duration <= 0 or fps <= 0:
+			cap.release()
+			return []
+
+		frame_interval = max(1, int(interval_sec * fps))
+		results = []
+		time_sec = 0.0
+		frame_idx = 0
+
+		while True:
+			ret, frame = cap.read()
+			if not ret:
+				break
+			if frame_idx % frame_interval == 0:
+				thumb_name = f"{f_hash}_t{int(time_sec)}.jpg"
+				thumb_path = thumb_dir / thumb_name
+				if not thumb_path.exists():
+					h, w = frame.shape[:2]
+					scale = min(120.0 / w, 80.0 / h)
+					nw, nh = int(w * scale), int(h * scale)
+					small = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_AREA)
+					cv2.imwrite(str(thumb_path), small, [cv2.IMWRITE_JPEG_QUALITY, 75])
+				results.append({"time_sec": time_sec, "path": str(thumb_path)})
+			time_sec += 1.0 / fps
+			frame_idx += 1
+
+		cap.release()
+		return results
+
 	def search_db(self, query):
 		if not self.current_case_id:
 			return []

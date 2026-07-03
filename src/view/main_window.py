@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 							 QListWidget, QListWidgetItem, QLabel, QLineEdit,
 							 QPushButton, QTabWidget, QTabBar, QTextEdit,
 							 QStackedWidget, QMessageBox, QStyle, QStyleOptionTab,
-							 QDateEdit, QTimeEdit, QCheckBox, QComboBox)
+							 QDateEdit, QTimeEdit, QCheckBox, QComboBox, QSlider)
 from PyQt6.QtCore import pyqtSignal, Qt, QSize, QDate, QTime, QDateTime
 from PyQt6.QtGui import QPixmap, QPainter, QColor
 
@@ -62,11 +62,12 @@ class MainWindowMixin(QMainWindow):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
 		self.setWindowTitle("Video Forensic Lab - Analyzer")
-		self.resize(1280, 720)
+		self.resize(1920, 1080)
 		self._raw_db_password = ""
 		self._pw_visible = False
 		self._raw_root_password = ""
 		self._root_pw_visible = False
+		self._is_analysis_built = False
 
 	def setup_ui(self):
 		central = QWidget()
@@ -404,6 +405,21 @@ class MainWindowMixin(QMainWindow):
 
 		toolbar.addStretch()
 
+		toolbar.addWidget(QLabel("Zoom:"))
+		self.slider_zoom = QSlider(Qt.Orientation.Horizontal)
+		self.slider_zoom.setRange(25, 400)
+		self.slider_zoom.setValue(100)
+		self.slider_zoom.setFixedWidth(120)
+		self.slider_zoom.setTickPosition(QSlider.TickPosition.TicksBelow)
+		self.slider_zoom.setTickInterval(75)
+		self.slider_zoom.valueChanged.connect(self.open_timeline_requested.emit)
+		toolbar.addWidget(self.slider_zoom)
+		self.lbl_zoom = QLabel("100%")
+		self.slider_zoom.valueChanged.connect(lambda v: self.lbl_zoom.setText(f"{v}%"))
+		toolbar.addWidget(self.lbl_zoom)
+
+		toolbar.addStretch()
+
 		toolbar.addWidget(QLabel("Offset:"))
 		self.cbo_offset = QComboBox()
 		self.cbo_offset.addItem("Winter UTC+1", 1)
@@ -419,6 +435,8 @@ class MainWindowMixin(QMainWindow):
 
 		self.nav_bar.addTab("Auswertung")
 		self.content_stack.addWidget(widget)
+
+		self._is_analysis_built = True
 
 	def _build_placeholder_tab(self, title):
 		widget = QWidget()
