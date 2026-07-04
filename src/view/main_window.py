@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 							 QPushButton, QTabWidget, QTabBar, QTextEdit,
 							 QStackedWidget, QMessageBox, QStyle, QStyleOptionTab,
 							 QDateEdit, QTimeEdit, QCheckBox, QComboBox, QSlider,
-							 QPlainTextEdit, QProgressBar, QGridLayout, QFrame)
+							 QPlainTextEdit, QProgressBar, QGridLayout)
 from PyQt6.QtCore import pyqtSignal, Qt, QSize, QDate, QTime, QDateTime, QProcess
 from PyQt6.QtGui import QPixmap, QPainter, QColor
 
@@ -59,7 +59,7 @@ class MainWindowMixin(QMainWindow):
 	save_settings_requested = pyqtSignal(str)
 	update_db_password_requested = pyqtSignal(str)
 	open_timeline_requested = pyqtSignal()
-	ffmpeg_run_requested = pyqtSignal(str, str, str, str)
+	ffmpeg_run_requested = pyqtSignal(str, str, str)
 	ffmpeg_abort_requested = pyqtSignal()
 
 	def __init__(self, **kwargs):
@@ -256,11 +256,170 @@ class MainWindowMixin(QMainWindow):
 	def _build_ffmpeg_tab(self):
 		widget = QWidget()
 		layout = QVBoxLayout(widget)
-		label = QLabel("ffmpeg\n\nNoch nicht implementiert")
-		label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-		layout.addWidget(label)
+
+		layout.addWidget(QLabel("<b>ffmpeg</b>"))
+		layout.addSpacing(8)
+
+		# Dateiauswahl
+		file_layout = QHBoxLayout()
+		file_layout.addWidget(QLabel("Datei:"))
+		self.ffmpeg_file_label = QLabel("–")
+		self.ffmpeg_file_label.setStyleSheet("color: #aaa;")
+		file_layout.addWidget(self.ffmpeg_file_label, 1)
+		self.ffmpeg_input_path = ""  # wird vom Presenter gesetzt
+		self.ffmpeg_btn_browse = QPushButton("Durchsuchen")
+		file_layout.addWidget(self.ffmpeg_btn_browse)
+		layout.addLayout(file_layout)
+
+		# Preset-Buttons
+		layout.addWidget(QLabel("Presets:"))
+		preset_grid = QGridLayout()
+		presets = [
+			(0, 0, "Trim", self._ffmpeg_preset_trim),
+			(0, 1, "Frames", self._ffmpeg_preset_frames),
+			(0, 2, "Audio", self._ffmpeg_preset_audio),
+			(0, 3, "Timecode", self._ffmpeg_preset_timecode),
+			(1, 0, "Container", self._ffmpeg_preset_container),
+			(1, 1, "Hash", self._ffmpeg_preset_hash),
+			(1, 2, "Custom", self._ffmpeg_preset_custom),
+		]
+		for row, col, title, cb in presets:
+			btn = QPushButton(title)
+			btn.clicked.connect(cb)
+			preset_grid.addWidget(btn, row, col)
+		layout.addLayout(preset_grid)
+
+		# Parameter
+		param_group = QWidget()
+		param_group.setStyleSheet("QWidget#ffmpeg_params { border: 1px solid #444; padding: 6px; }")
+		param_group.setObjectName("ffmpeg_params")
+		param_layout = QHBoxLayout(param_group)
+
+		param_layout.addWidget(QLabel("Start:"))
+		self.ffmpeg_start = QTimeEdit(QTime(0, 0))
+		self.ffmpeg_start.setDisplayFormat("HH:mm:ss")
+		param_layout.addWidget(self.ffmpeg_start)
+
+		param_layout.addWidget(QLabel("Ende:"))
+		self.ffmpeg_end = QTimeEdit(QTime(0, 0))
+		self.ffmpeg_end.setDisplayFormat("HH:mm:ss")
+		self.ffmpeg_end.setSpecialValueText("–")
+		self.ffmpeg_end.clear()
+		param_layout.addWidget(self.ffmpeg_end)
+
+		param_layout.addWidget(QLabel("Format:"))
+		self.ffmpeg_format = QComboBox()
+		self.ffmpeg_format.addItem("FFV1 (lossless)", "ffv1")
+		self.ffmpeg_format.addItem("H.264 CRF 18", "h264_crf18")
+		self.ffmpeg_format.addItem("H.264 CRF 10", "h264_crf10")
+		param_layout.addWidget(self.ffmpeg_format)
+
+		param_layout.addWidget(QLabel("Filter:"))
+		self.ffmpeg_filter = QLineEdit()
+		self.ffmpeg_filter.setPlaceholderText("z.B. scale=1280:720,eq=brightness=0.2")
+		param_layout.addWidget(self.ffmpeg_filter, 1)
+
+		layout.addWidget(param_group)
+
+		# Ausführen / Abbrechen
+		run_layout = QHBoxLayout()
+		self.ffmpeg_btn_run = QPushButton("▶ Ausführen")
+		self.ffmpeg_btn_run.setMinimumHeight(36)
+		self.ffmpeg_btn_run.clicked.connect(self._on_ffmpeg_run)
+		run_layout.addWidget(self.ffmpeg_btn_run)
+
+		self.ffmpeg_btn_abort = QPushButton("✕ Abbrechen")
+		self.ffmpeg_btn_abort.setMinimumHeight(36)
+		self.ffmpeg_btn_abort.setEnabled(False)
+		self.ffmpeg_btn_abort.clicked.connect(self._on_ffmpeg_abort)
+		run_layout.addWidget(self.ffmpeg_btn_abort)
+
+		self.ffmpeg_btn_abort.setStyleSheet("color: #ff6666;")
+		run_layout.addStretch()
+		self.ffmpeg_out_label = QLabel("")
+		run_layout.addWidget(self.ffmpeg_out_label)
+		layout.addLayout(run_layout)
+
+		# Log
+		self.ffmpeg_log = QPlainTextEdit()
+		self.ffmpeg_log.setReadOnly(True)
+		self.ffmpeg_log.setMaximumBlockCount(1000)
+		self.ffmpeg_log.setStyleSheet("background: #111; color: #0f0; font-family: Consolas; font-size: 9pt;")
+		layout.addWidget(self.ffmpeg_log, 1)
+
+		# Progress
+		self.ffmpeg_progress = QProgressBar()
+		self.ffmpeg_progress.setTextVisible(True)
+		layout.addWidget(self.ffmpeg_progress)
+
 		self.nav_bar.addTab("ffmpeg")
 		self.content_stack.addWidget(widget)
+
+	def _ffmpeg_preset_trim(self):
+		self.ffmpeg_filter.clear()
+		self.ffmpeg_format.setCurrentIndex(0)
+
+	def _ffmpeg_preset_frames(self):
+		self.ffmpeg_filter.setText("fps=1/10")
+		self.ffmpeg_format.setCurrentIndex(0)
+		self.ffmpeg_end.clear()
+
+	def _ffmpeg_preset_audio(self):
+		self.ffmpeg_filter.clear()
+		self.ffmpeg_format.setCurrentIndex(0)
+		self.ffmpeg_start.setTime(QTime(0, 0))
+		self.ffmpeg_end.clear()
+
+	def _ffmpeg_preset_timecode(self):
+		self.ffmpeg_filter.setText("__TIMECODE__")
+		self.ffmpeg_format.setCurrentIndex(0)
+		self.ffmpeg_start.setTime(QTime(0, 0))
+		self.ffmpeg_end.clear()
+
+	def _ffmpeg_preset_container(self):
+		self.ffmpeg_filter.clear()
+		self.ffmpeg_format.setCurrentIndex(0)
+		self.ffmpeg_start.setTime(QTime(0, 0))
+		self.ffmpeg_end.clear()
+
+	def _ffmpeg_preset_hash(self):
+		self.ffmpeg_filter.setText("-f framehash -")
+		self.ffmpeg_format.setCurrentIndex(0)
+		self.ffmpeg_start.setTime(QTime(0, 0))
+		self.ffmpeg_end.clear()
+
+	def _ffmpeg_preset_custom(self):
+		pass
+
+	def _on_ffmpeg_run(self):
+		inp = self.ffmpeg_input_path
+		if not inp:
+			QMessageBox.warning(self, "Keine Datei", "Bitte zuerst eine Datei auswählen.")
+			return
+		start = self.ffmpeg_start.time().toString("HH:mm:ss")
+		end = self.ffmpeg_end.time().toString("HH:mm:ss") if self.ffmpeg_end.time() != QTime(0, 0) else ""
+		filter_str = self.ffmpeg_filter.text().strip()
+		fmt = self.ffmpeg_format.currentData()
+		self.ffmpeg_run_requested.emit(inp, start + "|" + end + "|" + filter_str, fmt)
+
+	def _on_ffmpeg_abort(self):
+		self.ffmpeg_abort_requested.emit()
+
+	def _on_ffmpeg_browse(self):
+		from PyQt6.QtWidgets import QFileDialog
+		path, _ = QFileDialog.getOpenFileName(
+			self, "Mediendatei auswählen", "",
+			"Media Files (*.mp4 *.mov *.avi *.mkv *.webm *.mts *.jpg *.png)"
+		)
+		if path:
+			self.set_ffmpeg_file(path)
+
+	def set_ffmpeg_file(self, path):
+		self.ffmpeg_input_path = path
+		self.ffmpeg_file_label.setText(os.path.basename(path))
+		self.ffmpeg_file_label.setToolTip(path)
+		self.ffmpeg_log.clear()
+		self.ffmpeg_progress.setValue(0)
 
 	def _on_meta_search(self, query):
 		if hasattr(self, "search_metadata_tables"):

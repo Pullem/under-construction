@@ -53,8 +53,14 @@ class PresenterBase:
 		if hasattr(self.view, "open_timeline_requested"):
 			self.view.open_timeline_requested.connect(self.handle_open_timeline)
 
+		if hasattr(self.view, "ffmpeg_run_requested"):
+			self.view.ffmpeg_run_requested.connect(self.handle_ffmpeg_run)
+		if hasattr(self.view, "ffmpeg_abort_requested"):
+			self.view.ffmpeg_abort_requested.connect(self.handle_ffmpeg_abort)
+
 		self._refresh_settings()
 
+		self._last_selected_file = None
 		self.case_path = model.current_case_path
 		if self.case_path:
 			self._init_case_paths()

@@ -60,21 +60,6 @@ class MediaMixin:
 			except Exception:
 				pass
 
-		# Fallback: FFmpeg
-		ffmpeg = str(BASE_DIR / "ffmpeg.exe")
-		if os.path.exists(ffmpeg):
-			try:
-				subprocess.run(
-					[ffmpeg, "-ss", "0", "-i", str(filepath),
-					 "-vframes", "1", "-q:v", "2",
-					 "-y", str(thumb_path)],
-					capture_output=True, text=True, timeout=30
-				)
-				if thumb_path.exists():
-					return str(thumb_path)
-			except Exception:
-				pass
-
 		return str(thumb_path)
 
 	def save_to_db(self, path, name, f_hash, mi_dict, exif_dict):

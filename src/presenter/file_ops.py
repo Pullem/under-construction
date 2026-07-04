@@ -24,6 +24,22 @@ class FileOpsMixin:
 		if not file_name:
 			return
 
+		self._last_selected_file = file_name
+
+		# ffmpeg-Tab: Datei vorbefüllen
+		if hasattr(self.view, 'set_ffmpeg_file') and self._last_selected_file:
+			conn = self.model.get_connection()
+			if conn:
+				try:
+					cur = conn.cursor(dictionary=True)
+					cur.execute("SELECT file_path FROM media_files WHERE file_name = ?", (file_name,))
+					row = cur.fetchone()
+					conn.close()
+					if row:
+						self.view.set_ffmpeg_file(row['file_path'])
+				except Exception:
+					conn.close()
+
 		target_tab = self.last_tab_focus
 
 		try:
