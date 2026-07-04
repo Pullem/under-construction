@@ -1,8 +1,19 @@
 import os
 import json
 import hashlib
-import cv2
+import subprocess
 from pathlib import Path
+
+from .base import BASE_DIR
+
+# OpenCV stumm schalten (keine "Failed to initialize" Ausgaben)
+os.environ["OPENCV_LOG_LEVEL"] = "FATAL"
+os.environ["OPENCV_VIDEOIO_DEBUG"] = "0"
+import cv2
+try:
+	cv2.setLogLevel(0)
+except AttributeError:
+	pass
 
 
 class MediaMixin:
@@ -20,17 +31,50 @@ class MediaMixin:
 			thumb_dir = Path(self.current_case_path) / "thumbnails"
 
 		thumb_dir.mkdir(parents=True, exist_ok=True)
-
-		cap = cv2.VideoCapture(str(filepath))
-		success, frame = cap.read()
-		cap.release()
-
-		if not success or frame is None:
-			thumb_path = thumb_dir / (Path(filepath).stem + "_thumb.jpg")
-			return str(thumb_path)
-
 		thumb_path = thumb_dir / (Path(filepath).stem + "_thumb.jpg")
-		cv2.imwrite(str(thumb_path), frame)
+
+		# FFmpeg bevorzugen (zuverlässiger bei H.264 etc.)
+		ffmpeg = str(BASE_DIR / "ffmpeg.exe")
+		if os.path.exists(ffmpeg):
+			try:
+				subprocess.run(
+					[ffmpeg, "-ss", "0", "-i", str(filepath),
+					 "-vframes", "1", "-q:v", "2",
+					 "-y", str(thumb_path)],
+					capture_output=True, text=True, timeout=30
+				)
+				if thumb_path.exists() and thumb_path.stat().st_size > 0:
+					return str(thumb_path)
+			except Exception:
+				pass
+
+		# Fallback: OpenCV
+		import contextlib
+		with contextlib.redirect_stderr(open(os.devnull, 'w')):
+			try:
+				cap = cv2.VideoCapture(str(filepath))
+				success, frame = cap.read()
+				cap.release()
+				if success and frame is not None:
+					cv2.imwrite(str(thumb_path), frame)
+			except Exception:
+				pass
+
+		# Fallback: FFmpeg
+		ffmpeg = str(BASE_DIR / "ffmpeg.exe")
+		if os.path.exists(ffmpeg):
+			try:
+				subprocess.run(
+					[ffmpeg, "-ss", "0", "-i", str(filepath),
+					 "-vframes", "1", "-q:v", "2",
+					 "-y", str(thumb_path)],
+					capture_output=True, text=True, timeout=30
+				)
+				if thumb_path.exists():
+					return str(thumb_path)
+			except Exception:
+				pass
+
 		return str(thumb_path)
 
 	def save_to_db(self, path, name, f_hash, mi_dict, exif_dict):
@@ -84,41 +128,65 @@ class MediaMixin:
 		thumb_dir = Path(thumb_dir)
 		thumb_dir.mkdir(parents=True, exist_ok=True)
 		f_hash = self.calculate_hash(filepath)[:12]
-
-		cap = cv2.VideoCapture(str(filepath))
-		if not cap.isOpened():
-			return []
-
-		fps = cap.get(cv2.CAP_PROP_FPS)
-		total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-		duration = total_frames / fps if fps > 0 else 0
-		if duration <= 0 or fps <= 0:
-			cap.release()
-			return []
-
-		frame_interval = max(1, int(interval_sec * fps))
 		results = []
-		time_sec = 0.0
-		frame_idx = 0
 
-		while True:
-			ret, frame = cap.read()
-			if not ret:
-				break
-			if frame_idx % frame_interval == 0:
-				thumb_name = f"{f_hash}_t{int(time_sec)}.jpg"
-				thumb_path = thumb_dir / thumb_name
-				if not thumb_path.exists():
-					h, w = frame.shape[:2]
-					scale = min(120.0 / w, 80.0 / h)
-					nw, nh = int(w * scale), int(h * scale)
-					small = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_AREA)
-					cv2.imwrite(str(thumb_path), small, [cv2.IMWRITE_JPEG_QUALITY, 75])
-				results.append({"time_sec": time_sec, "path": str(thumb_path)})
-			time_sec += 1.0 / fps
-			frame_idx += 1
+		ffmpeg = str(BASE_DIR / "ffmpeg.exe")
+		if not os.path.exists(ffmpeg):
+			print(f"[extract_thumbnails] ffmpeg nicht gefunden: {ffmpeg}")
+			return []
 
-		cap.release()
+		# Dauer via ffprobe ermitteln
+		duration = 0
+		try:
+			r = subprocess.run(
+				[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
+				 "-show_entries", "format=duration",
+				 "-of", "csv=p=0", str(filepath)],
+				capture_output=True, text=True, timeout=15
+			)
+			duration = float(r.stdout.strip())
+		except Exception as e:
+			print(f"[extract_thumbnails] ffprobe Fehler: {e}")
+
+		if duration <= 0:
+			# Fallback: cv2 versuchen (stumm)
+			import contextlib
+			with contextlib.redirect_stderr(open(os.devnull, 'w')):
+				try:
+					cap = cv2.VideoCapture(str(filepath))
+					if cap.isOpened():
+						fps = cap.get(cv2.CAP_PROP_FPS)
+						total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+						duration = total / fps if fps > 0 else 0
+						cap.release()
+				except Exception:
+					pass
+			if duration <= 0:
+				return []
+
+		num_thumbs = max(1, int(duration / interval_sec))
+		# Extraktions-Zeitpunkte
+		time_points = [i * interval_sec for i in range(num_thumbs)]
+
+		for t in time_points:
+			thumb_name = f"{f_hash}_t{int(t)}.jpg"
+			thumb_path = thumb_dir / thumb_name
+			if thumb_path.exists():
+				results.append({"time_sec": t, "path": str(thumb_path)})
+				continue
+			try:
+				subprocess.run(
+					[ffmpeg, "-ss", str(t), "-i", str(filepath),
+					 "-vframes", "1", "-q:v", "2",
+					 "-vf", "scale=120:-2",
+					 "-y", str(thumb_path)],
+					capture_output=True, text=True, timeout=30
+				)
+				if thumb_path.exists():
+					results.append({"time_sec": t, "path": str(thumb_path)})
+			except Exception as e:
+				print(f"[extract_thumbnails] Frame {t}s Fehler: {e}")
+
 		return results
 
 	def search_db(self, query):

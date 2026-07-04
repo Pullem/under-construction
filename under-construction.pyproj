@@ -168,7 +168,6 @@
     <Folder Include="src\__pycache__\" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="exiftool.exe" />
     <Content Include="exiftool_files\exiftool.pl" />
     <Content Include="exiftool_files\libgcc_s_seh-1.dll" />
     <Content Include="exiftool_files\liblzma-5__.dll" />
@@ -677,7 +676,6 @@
     <Content Include="exiftool_files\readme_windows.txt" />
     <Content Include="exiftool_files\windows_exiftool.txt" />
     <Content Include="LICENSE.txt" />
-    <Content Include="MediaInfo.exe" />
     <Content Include="README.md" />
     <Content Include="src\model\__pycache__\base.cpython-314.pyc" />
     <Content Include="src\model\__pycache__\case.cpython-314.pyc" />

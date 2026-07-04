@@ -216,13 +216,14 @@ class PresenterBase:
 						dur = float(dur_str)
 					except (ValueError, TypeError):
 						dur = 0
-					if dur > 0 and thumb_dir:
-						# fixes Intervall abhängig von der Dauer
-						if dur <= 60:
+					# MediaInfo: duration in Millisekunden -> Sekunden
+					dur_sec = dur / 1000.0
+					if dur_sec > 0 and thumb_dir:
+						if dur_sec <= 60:
 							interval = 2
-						elif dur <= 300:
+						elif dur_sec <= 300:
 							interval = 10
-						elif dur <= 3600:
+						elif dur_sec <= 3600:
 							interval = 30
 						else:
 							interval = 60
@@ -230,7 +231,7 @@ class PresenterBase:
 						f["_thumbnails"] = thumbnails
 					else:
 						f["_thumbnails"] = []
-					f["_duration_sec"] = dur
+					f["_duration_sec"] = dur_sec
 				elif mtype == "Foto":
 					# Einzel-Thumbnail für Fotos über vorhandene Methode
 					thumb_path = self.model.get_thumbnail(fpath)

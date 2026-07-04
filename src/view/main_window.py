@@ -3,8 +3,9 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 							 QListWidget, QListWidgetItem, QLabel, QLineEdit,
 							 QPushButton, QTabWidget, QTabBar, QTextEdit,
 							 QStackedWidget, QMessageBox, QStyle, QStyleOptionTab,
-							 QDateEdit, QTimeEdit, QCheckBox, QComboBox, QSlider)
-from PyQt6.QtCore import pyqtSignal, Qt, QSize, QDate, QTime, QDateTime
+							 QDateEdit, QTimeEdit, QCheckBox, QComboBox, QSlider,
+							 QPlainTextEdit, QProgressBar, QGridLayout, QFrame)
+from PyQt6.QtCore import pyqtSignal, Qt, QSize, QDate, QTime, QDateTime, QProcess
 from PyQt6.QtGui import QPixmap, QPainter, QColor
 
 
@@ -58,6 +59,8 @@ class MainWindowMixin(QMainWindow):
 	save_settings_requested = pyqtSignal(str)
 	update_db_password_requested = pyqtSignal(str)
 	open_timeline_requested = pyqtSignal()
+	ffmpeg_run_requested = pyqtSignal(str, str, str, str)
+	ffmpeg_abort_requested = pyqtSignal()
 
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
