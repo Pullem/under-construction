@@ -129,7 +129,9 @@ class MediaMixin:
 				 "-of", "csv=p=0", str(filepath)],
 				capture_output=True, text=True, timeout=15
 			)
-			duration = float(r.stdout.strip())
+			out = r.stdout.strip()
+			if out:
+				duration = float(out)
 		except Exception as e:
 			print(f"[extract_thumbnails] ffprobe Fehler: {e}")
 

@@ -50,41 +50,24 @@ class FfmpegOpsMixin:
 			out_path = exports_dir / out_filename
 			out_idx += 1
 
-		cmd = [str(BASE_DIR / "ffmpeg.exe"), "-y"]
+		# Framerate für timecode-Preset automatisch ermitteln
+		if "rate=25" in filter_str:
+			fps = self._get_framerate(str(src))
+			if fps:
+				filter_str = filter_str.replace("rate=25", f"rate={fps}")
 
-		# Timecode-Preset: drawtext mit temporärem Font + textfile (kein Doppelpunkt im Filter)
-		timecode_use_font = False
-		if filter_str == "__TIMECODE__":
-			font_rel = self._prepare_drawtext_fonts(exports_dir)
-			if font_rel:
-				filter_str = (
-					f"drawtext=fontfile={font_rel}:"
-					f"textfile=timecode_expr.txt:"
-					f"x=10:y=10:fontsize=24:fontcolor=white:"
-					f"box=1:boxcolor=0x000000AA"
-				)
-				timecode_use_font = True
-			else:
-				# Fallback: -timecode Output-Option
-				self._ffmpeg_log("⚠ Font nicht gefunden, verwende -timecode als Fallback")
-				filter_str = "__TIMECODE_FALLBACK__"
+		cmd = [str(BASE_DIR / "ffmpeg.exe"), "-y"]
 
 		if start_ts != "00:00:00":
 			cmd += ["-ss", start_ts]
 		cmd += ["-i", str(src)]
 		if end_ts:
 			cmd += ["-to", end_ts]
-		timecode_fallback = (filter_str == "__TIMECODE_FALLBACK__")
-		skip_vf = (filter_str in ("-f framehash -", "__TIMECODE_FALLBACK__"))
-		if filter_str and not skip_vf:
+		if filter_str and filter_str not in ("-f framehash -",):
 			cmd += ["-vf", filter_str]
 		if filter_str == "-f framehash -":
 			cmd += ["-f", "framehash", "-"]
 			out_path = None
-		elif timecode_fallback:
-			cmd += codec_args
-			cmd += ["-timecode", start_ts + ":00"]
-			cmd.append(str(out_path))
 		else:
 			cmd += codec_args
 			cmd.append(str(out_path))
@@ -100,11 +83,7 @@ class FfmpegOpsMixin:
 		self._ffmpeg_proc = QProcess()
 		self._ffmpeg_proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
 
-		# Working Directory für relative Font-Pfade
-		if timecode_use_font:
-			self._ffmpeg_proc.setWorkingDirectory(str(exports_dir))
-
-		# Fontconfig für Windows einrichten (Fallback für user-eigene drawtext-Filter)
+		# Fontconfig für Windows einrichten (drawtext braucht es)
 		env = self._ffmpeg_proc.processEnvironment()
 		fc_path = self._setup_fontconfig()
 		if fc_path:
@@ -177,25 +156,6 @@ class FfmpegOpsMixin:
 		if hasattr(self.view, 'ffmpeg_log'):
 			self.view.ffmpeg_log.appendPlainText(msg)
 
-	def _prepare_drawtext_fonts(self, exports_dir):
-		try:
-			import shutil
-			src_font = Path("C:/Windows/Fonts/arial.ttf")
-			dst_font = exports_dir / "timecode_font.ttf"
-			if src_font.exists() and not dst_font.exists():
-				shutil.copy2(str(src_font), str(dst_font))
-
-			expr_file = exports_dir / "timecode_expr.txt"
-			if not expr_file.exists():
-				expr_file.write_text("%{pts:hms}", encoding="utf-8")
-
-			if dst_font.exists() and expr_file.exists():
-				self._ffmpeg_log("✓ Font + timecode_expr.txt in exports bereit")
-				return "timecode_font.ttf"
-		except Exception as e:
-			self._ffmpeg_log(f"Font-Setup fehlgeschlagen: {e}")
-		return None
-
 	def _setup_fontconfig(self):
 		try:
 			fc_dir = Path(str(BASE_DIR)) / ".fontconfig"
@@ -215,6 +175,25 @@ class FfmpegOpsMixin:
 			self._ffmpeg_log(f"Fontconfig-Setup fehlgeschlagen: {e}")
 			return None
 
+	def _get_framerate(self, filepath):
+		try:
+			r = subprocess.run(
+				[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
+				 "-select_streams", "v:0",
+				 "-show_entries", "stream=r_frame_rate",
+				 "-of", "csv=p=0", filepath],
+				capture_output=True, text=True, timeout=15
+			)
+			out = r.stdout.strip()
+			if out and "/" in out:
+				num, den = out.split("/")
+				return round(float(num) / float(den))
+			elif out:
+				return round(float(out))
+		except Exception:
+			pass
+		return None
+
 	def _get_duration(self, filepath):
 		try:
 			r = subprocess.run(
@@ -223,7 +202,8 @@ class FfmpegOpsMixin:
 				 "-of", "csv=p=0", filepath],
 				capture_output=True, text=True, timeout=15
 			)
-			return float(r.stdout.strip())
+			out = r.stdout.strip()
+			return float(out) if out else 0
 		except Exception:
 			return 0
 

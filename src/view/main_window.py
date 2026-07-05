@@ -1,4 +1,7 @@
 import os
+import json
+import subprocess
+from datetime import datetime, timedelta
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 							 QListWidget, QListWidgetItem, QLabel, QLineEdit,
 							 QPushButton, QTabWidget, QTabBar, QTextEdit,
@@ -321,6 +324,19 @@ class MainWindowMixin(QMainWindow):
 
 		layout.addWidget(param_group)
 
+		# Encoded date / time info
+		date_layout = QHBoxLayout()
+		date_layout.addWidget(QLabel("encoded_date/time:"))
+		self.ffmpeg_encoded_label = QLabel("–")
+		self.ffmpeg_encoded_label.setStyleSheet("color: #888;")
+		date_layout.addWidget(self.ffmpeg_encoded_label, 1)
+		date_layout.addWidget(QLabel("UTC-Offset:"))
+		self.ffmpeg_utc_combo = QComboBox()
+		self.ffmpeg_utc_combo.addItem("UTC+1", 1)
+		self.ffmpeg_utc_combo.addItem("UTC+2", 2)
+		date_layout.addWidget(self.ffmpeg_utc_combo)
+		layout.addLayout(date_layout)
+
 		# Ausführen / Abbrechen
 		run_layout = QHBoxLayout()
 		self.ffmpeg_btn_run = QPushButton("▶ Ausführen")
@@ -371,7 +387,10 @@ class MainWindowMixin(QMainWindow):
 		self.ffmpeg_end.clear()
 
 	def _ffmpeg_preset_timecode(self):
-		self.ffmpeg_filter.setText("__TIMECODE__")
+		self.ffmpeg_filter.setText(
+			"drawtext=timecode='00\\:00\\:00\\:00':rate=25:fontsize=20:fontcolor=white:x=10:y=10,"
+			"drawtext=timecode='__REALTIME__':rate=25:fontsize=20:fontcolor=white:x=main_w-text_w-10:y=10"
+		)
 		self.ffmpeg_format.setCurrentIndex(0)
 		self.ffmpeg_start.setTime(QTime(0, 0))
 		self.ffmpeg_end.clear()
@@ -400,6 +419,23 @@ class MainWindowMixin(QMainWindow):
 		end = self.ffmpeg_end.time().toString("HH:mm:ss") if self.ffmpeg_end.time() != QTime(0, 0) else ""
 		filter_str = self.ffmpeg_filter.text().strip()
 		fmt = self.ffmpeg_format.currentData()
+
+		# __REALTIME__ durch encoded_date + UTC-Offset ersetzen
+		if "__REALTIME__" in filter_str:
+			encoded = self.ffmpeg_encoded_label.text()
+			utc_offset = self.ffmpeg_utc_combo.currentData()
+			realtime_plain = "00:00:00:00"
+			if encoded != "–" and "T" in encoded:
+				try:
+					dt = datetime.fromisoformat(encoded.replace("Z", "+00:00"))
+					dt += timedelta(hours=utc_offset)
+					realtime_plain = dt.strftime("%H:%M:%S") + ":00"
+				except Exception:
+					pass
+			# \: - Escapes für den Filterparser einbauen
+			realtime_val = realtime_plain.replace(":", "\\:")
+			filter_str = filter_str.replace("__REALTIME__", realtime_val)
+
 		self.ffmpeg_run_requested.emit(inp, start + "|" + end + "|" + filter_str, fmt)
 
 	def _on_ffmpeg_abort(self):
@@ -420,6 +456,52 @@ class MainWindowMixin(QMainWindow):
 		self.ffmpeg_file_label.setToolTip(path)
 		self.ffmpeg_log.clear()
 		self.ffmpeg_progress.setValue(0)
+		self._update_ffmpeg_encoded_date(path)
+
+	def _update_ffmpeg_encoded_date(self, path):
+		try:
+			from ..model.base import BASE_DIR
+			r = subprocess.run(
+				[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
+				 "-show_entries", "format=creation_time",
+				 "-of", "csv=p=0", path],
+				capture_output=True, text=True, timeout=15
+			)
+			out = r.stdout.strip()
+			if out:
+				self.ffmpeg_encoded_label.setText(out)
+				return
+		except Exception:
+			pass
+
+		try:
+			conn = self._get_db_connection()
+			if conn:
+				cur = conn.cursor(dictionary=True)
+				cur.execute(
+					"SELECT metadata FROM media_files WHERE file_path = ?",
+					(path,)
+				)
+				row = cur.fetchone()
+				conn.close()
+				if row:
+					md = json.loads(row['metadata'])
+					gen = md.get("General", {})
+					ct = gen.get("encoded_date") or gen.get("creation_date") or gen.get("file_creation_date_local", "")
+					if ct:
+						self.ffmpeg_encoded_label.setText(ct)
+						return
+		except Exception:
+			pass
+
+		self.ffmpeg_encoded_label.setText("–")
+
+	def _get_db_connection(self):
+		from ..model.base import ModelBase
+		for cls in type(self).__mro__:
+			if hasattr(cls, 'get_connection'):
+				return cls.get_connection(self)
+		return None
 
 	def _on_meta_search(self, query):
 		if hasattr(self, "search_metadata_tables"):
