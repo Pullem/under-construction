@@ -64,7 +64,7 @@ class MainWindowMixin(QMainWindow):
 	open_timeline_requested = pyqtSignal()
 	ffmpeg_run_requested = pyqtSignal(str, str, str)
 	ffmpeg_abort_requested = pyqtSignal()
-	ffprobe_analyse_requested = pyqtSignal(str)
+	ffprobe_analyse_requested = pyqtSignal(str, str)
 
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
@@ -252,13 +252,47 @@ class MainWindowMixin(QMainWindow):
 		widget = QWidget()
 		layout = QVBoxLayout(widget)
 
-		layout.addWidget(QLabel("<b>ffprobe – Stream-Übersicht</b>"))
+		layout.addWidget(QLabel("<b>ffprobe – Analysen</b>"))
 		layout.addSpacing(8)
 
 		toolbar = QHBoxLayout()
-		self.ffprobe_btn = QPushButton("Analyse starten")
-		self.ffprobe_btn.clicked.connect(self._on_ffprobe_analyse)
-		toolbar.addWidget(self.ffprobe_btn)
+		btn_streams = QPushButton("Stream-Übersicht")
+		btn_streams.clicked.connect(lambda: self._on_ffprobe_analyse("streams"))
+		toolbar.addWidget(btn_streams)
+
+		btn_pts = QPushButton("PTS/DTS-Check")
+		btn_pts.clicked.connect(lambda: self._on_ffprobe_analyse("pts_dts"))
+		toolbar.addWidget(btn_pts)
+
+		btn_frames = QPushButton("Frame-Verteilung")
+		btn_frames.clicked.connect(lambda: self._on_ffprobe_analyse("frame_dist"))
+		toolbar.addWidget(btn_frames)
+
+		btn_freeze = QPushButton("Freeze-Detect")
+		btn_freeze.clicked.connect(lambda: self._on_ffprobe_analyse("freeze"))
+		toolbar.addWidget(btn_freeze)
+
+		btn_black = QPushButton("Black-Detect")
+		btn_black.clicked.connect(lambda: self._on_ffprobe_analyse("blackdetect"))
+		toolbar.addWidget(btn_black)
+
+		btn_scene = QPushButton("Scene-Detect")
+		btn_scene.clicked.connect(lambda: self._on_ffprobe_analyse("scenedetect"))
+		toolbar.addWidget(btn_scene)
+
+		btn_silence = QPushButton("Silence-Detect")
+		btn_silence.clicked.connect(lambda: self._on_ffprobe_analyse("silencedetect"))
+		toolbar.addWidget(btn_silence)
+
+		btn_bitrate = QPushButton("Bitrate-Check")
+		btn_bitrate.clicked.connect(lambda: self._on_ffprobe_analyse("bitrate"))
+		toolbar.addWidget(btn_bitrate)
+
+		btn_quick = QPushButton("Quick-Check")
+		btn_quick.setStyleSheet("background-color: #2a6d2a; color: white; font-weight: bold;")
+		btn_quick.clicked.connect(lambda: self._on_ffprobe_analyse("quickcheck"))
+		toolbar.addWidget(btn_quick)
+
 		self.ffprobe_file_label = QLabel("–")
 		self.ffprobe_file_label.setStyleSheet("color: #aaa;")
 		toolbar.addWidget(self.ffprobe_file_label, 1)
@@ -525,12 +559,13 @@ class MainWindowMixin(QMainWindow):
 				return cls.get_connection(self)
 		return None
 
-	def _on_ffprobe_analyse(self):
+	def _on_ffprobe_analyse(self, mode):
 		path = self.ffmpeg_input_path or self.ffprobe_file_label.text()
 		if path == "–":
 			QMessageBox.warning(self, "Keine Datei", "Bitte zuerst eine Datei auswählen.")
 			return
-		self.ffprobe_analyse_requested.emit(path)
+		self.ffprobe_result.clear()
+		self.ffprobe_analyse_requested.emit(path, mode)
 
 	def _on_meta_search(self, query):
 		if hasattr(self, "search_metadata_tables"):
