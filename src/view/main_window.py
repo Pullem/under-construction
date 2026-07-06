@@ -64,6 +64,7 @@ class MainWindowMixin(QMainWindow):
 	open_timeline_requested = pyqtSignal()
 	ffmpeg_run_requested = pyqtSignal(str, str, str)
 	ffmpeg_abort_requested = pyqtSignal()
+	ffprobe_analyse_requested = pyqtSignal(str)
 
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
@@ -250,9 +251,24 @@ class MainWindowMixin(QMainWindow):
 	def _build_ffprobe_tab(self):
 		widget = QWidget()
 		layout = QVBoxLayout(widget)
-		label = QLabel("ffprobe\n\nNoch nicht implementiert")
-		label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-		layout.addWidget(label)
+
+		layout.addWidget(QLabel("<b>ffprobe – Stream-Übersicht</b>"))
+		layout.addSpacing(8)
+
+		toolbar = QHBoxLayout()
+		self.ffprobe_btn = QPushButton("Analyse starten")
+		self.ffprobe_btn.clicked.connect(self._on_ffprobe_analyse)
+		toolbar.addWidget(self.ffprobe_btn)
+		self.ffprobe_file_label = QLabel("–")
+		self.ffprobe_file_label.setStyleSheet("color: #aaa;")
+		toolbar.addWidget(self.ffprobe_file_label, 1)
+		layout.addLayout(toolbar)
+
+		self.ffprobe_result = QPlainTextEdit()
+		self.ffprobe_result.setReadOnly(True)
+		self.ffprobe_result.setStyleSheet("background: #111; color: #0f0; font-family: Consolas; font-size: 9pt;")
+		layout.addWidget(self.ffprobe_result, 1)
+
 		self.nav_bar.addTab("ffprobe")
 		self.content_stack.addWidget(widget)
 
@@ -285,6 +301,7 @@ class MainWindowMixin(QMainWindow):
 			(1, 0, "Container", self._ffmpeg_preset_container),
 			(1, 1, "Hash", self._ffmpeg_preset_hash),
 			(1, 2, "Custom", self._ffmpeg_preset_custom),
+			(1, 3, "Bitstream", self._ffmpeg_preset_bitstream),
 		]
 		for row, col, title, cb in presets:
 			btn = QPushButton(title)
@@ -324,17 +341,17 @@ class MainWindowMixin(QMainWindow):
 
 		layout.addWidget(param_group)
 
-		# Encoded date / time info
+		# Encoded date / time info + UTC-Offset
 		date_layout = QHBoxLayout()
-		date_layout.addWidget(QLabel("encoded_date/time:"))
+		date_layout.addWidget(QLabel("encoded:"))
 		self.ffmpeg_encoded_label = QLabel("–")
 		self.ffmpeg_encoded_label.setStyleSheet("color: #888;")
-		date_layout.addWidget(self.ffmpeg_encoded_label, 1)
-		date_layout.addWidget(QLabel("UTC-Offset:"))
+		date_layout.addWidget(self.ffmpeg_encoded_label)
 		self.ffmpeg_utc_combo = QComboBox()
 		self.ffmpeg_utc_combo.addItem("UTC+1", 1)
 		self.ffmpeg_utc_combo.addItem("UTC+2", 2)
 		date_layout.addWidget(self.ffmpeg_utc_combo)
+		date_layout.addStretch()
 		layout.addLayout(date_layout)
 
 		# Ausführen / Abbrechen
@@ -410,6 +427,9 @@ class MainWindowMixin(QMainWindow):
 	def _ffmpeg_preset_custom(self):
 		pass
 
+	def _ffmpeg_preset_bitstream(self):
+		self.ffmpeg_filter.setText("__BITSTREAM__")
+
 	def _on_ffmpeg_run(self):
 		inp = self.ffmpeg_input_path
 		if not inp:
@@ -454,6 +474,8 @@ class MainWindowMixin(QMainWindow):
 		self.ffmpeg_input_path = path
 		self.ffmpeg_file_label.setText(os.path.basename(path))
 		self.ffmpeg_file_label.setToolTip(path)
+		self.ffprobe_file_label.setText(os.path.basename(path))
+		self.ffprobe_file_label.setToolTip(path)
 		self.ffmpeg_log.clear()
 		self.ffmpeg_progress.setValue(0)
 		self._update_ffmpeg_encoded_date(path)
@@ -463,7 +485,7 @@ class MainWindowMixin(QMainWindow):
 			from ..model.base import BASE_DIR
 			r = subprocess.run(
 				[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
-				 "-show_entries", "format=creation_time",
+				 "-show_entries", "format_tags=creation_time",
 				 "-of", "csv=p=0", path],
 				capture_output=True, text=True, timeout=15
 			)
@@ -502,6 +524,13 @@ class MainWindowMixin(QMainWindow):
 			if hasattr(cls, 'get_connection'):
 				return cls.get_connection(self)
 		return None
+
+	def _on_ffprobe_analyse(self):
+		path = self.ffmpeg_input_path or self.ffprobe_file_label.text()
+		if path == "–":
+			QMessageBox.warning(self, "Keine Datei", "Bitte zuerst eine Datei auswählen.")
+			return
+		self.ffprobe_analyse_requested.emit(path)
 
 	def _on_meta_search(self, query):
 		if hasattr(self, "search_metadata_tables"):

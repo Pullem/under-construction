@@ -56,21 +56,25 @@ class FfmpegOpsMixin:
 			if fps:
 				filter_str = filter_str.replace("rate=25", f"rate={fps}")
 
-		cmd = [str(BASE_DIR / "ffmpeg.exe"), "-y"]
+		out_path = None
+		bitstream_mode = (filter_str == "__BITSTREAM__")
 
-		if start_ts != "00:00:00":
-			cmd += ["-ss", start_ts]
-		cmd += ["-i", str(src)]
-		if end_ts:
-			cmd += ["-to", end_ts]
-		if filter_str and filter_str not in ("-f framehash -",):
-			cmd += ["-vf", filter_str]
-		if filter_str == "-f framehash -":
-			cmd += ["-f", "framehash", "-"]
-			out_path = None
+		if bitstream_mode:
+			cmd = [str(BASE_DIR / "ffmpeg.exe"), "-i", str(src), "-f", "null", "-"]
 		else:
-			cmd += codec_args
-			cmd.append(str(out_path))
+			cmd = [str(BASE_DIR / "ffmpeg.exe"), "-y"]
+			if start_ts != "00:00:00":
+				cmd += ["-ss", start_ts]
+			cmd += ["-i", str(src)]
+			if end_ts:
+				cmd += ["-to", end_ts]
+			if filter_str and filter_str not in ("-f framehash -",):
+				cmd += ["-vf", filter_str]
+			if filter_str == "-f framehash -":
+				cmd += ["-f", "framehash", "-"]
+			else:
+				cmd += codec_args
+				cmd.append(str(out_path))
 
 		self._ffmpeg_log(f"Starte: {' '.join(cmd)}")
 		if hasattr(self.view, 'ffmpeg_progress'):
@@ -83,17 +87,18 @@ class FfmpegOpsMixin:
 		self._ffmpeg_proc = QProcess()
 		self._ffmpeg_proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
 
-		# Fontconfig für Windows einrichten (drawtext braucht es)
-		env = self._ffmpeg_proc.processEnvironment()
-		fc_path = self._setup_fontconfig()
-		if fc_path:
-			env.insert("FONTCONFIG_PATH", fc_path)
-			self._ffmpeg_proc.setProcessEnvironment(env)
+		if not bitstream_mode:
+			# Fontconfig für Windows einrichten (drawtext braucht es)
+			env = self._ffmpeg_proc.processEnvironment()
+			fc_path = self._setup_fontconfig()
+			if fc_path:
+				env.insert("FONTCONFIG_PATH", fc_path)
+				self._ffmpeg_proc.setProcessEnvironment(env)
 
 		timecode_pattern = None
 		if filter_str == "-f framehash -":
 			pass  # kein Fortschritt möglich
-		else:
+		elif not bitstream_mode:
 			# Dauer für Progress ermitteln
 			dur = self._get_duration(str(src))
 			if dur > 0:
@@ -193,6 +198,80 @@ class FfmpegOpsMixin:
 		except Exception:
 			pass
 		return None
+
+	def handle_ffprobe_analyse(self, filepath):
+		self._ffmpeg_log_probe(f"Analysiere: {filepath}")
+		try:
+			r = subprocess.run(
+				[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
+				 "-show_streams", "-show_format",
+				 "-of", "json", filepath],
+				capture_output=True, text=True, timeout=30
+			)
+			data = json.loads(r.stdout)
+		except Exception as e:
+			self._ffmpeg_log_probe(f"ffprobe Fehler: {e}")
+			return
+
+		lines = []
+		fmt = data.get("format", {})
+		lines.append(f"Format: {fmt.get('format_long_name', '?')}")
+		lines.append(f"Duration: {fmt.get('duration', '?')}s")
+		lines.append(f"Size: {fmt.get('size', '?')} bytes")
+		lines.append(f"Bitrate: {fmt.get('bit_rate', '?')} bps")
+		if "creation_time" in fmt.get("tags", {}):
+			lines.append(f"Creation Time: {fmt['tags']['creation_time']}")
+		lines.append("")
+
+		streams = data.get("streams", [])
+		lines.append(f"Streams ({len(streams)}):")
+		lines.append("-" * 60)
+
+		for s in streams:
+			idx = s.get("index", "?")
+			codec = s.get("codec_name", "?")
+			stype = s.get("codec_type", "?").upper()
+			lines.append(f"  Stream #{idx} [{stype}]")
+
+			if stype == "VIDEO":
+				res = f"{s.get('width','?')}x{s.get('height','?')}"
+				fps = s.get("r_frame_rate", "?")
+				pix = s.get("pix_fmt", "?")
+				br = s.get("bit_rate", "?")
+				sar = s.get("sample_aspect_ratio", "?")
+				dar = s.get("display_aspect_ratio", "?")
+				lines.append(f"    Codec: {codec}  Resolution: {res}  SAR: {sar}  DAR: {dar}")
+				lines.append(f"    FPS: {fps}  Pixelformat: {pix}  Bitrate: {br} bps")
+			elif stype == "AUDIO":
+				sr = s.get("sample_rate", "?")
+				ch = s.get("channels", "?")
+				chl = s.get("channel_layout", "?")
+				br = s.get("bit_rate", "?")
+				lines.append(f"    Codec: {codec}  SampleRate: {sr}Hz  Channels: {ch} ({chl})  Bitrate: {br} bps")
+			elif stype == "DATA" or stype == "SUBTITLE":
+				tags = s.get("tags", {})
+				tc = tags.get("timecode", "–")
+				lang = tags.get("language", "?")
+				lines.append(f"    Type: {codec}  Timecode: {tc}  Language: {lang}")
+			else:
+				lines.append(f"    Codec: {codec}")
+
+			# Zusätzliche Tags anzeigen
+			extra = []
+			tags = s.get("tags", {})
+			for k, v in tags.items():
+				if k not in ("language", "timecode", "creation_time", "handler_name"):
+					extra.append(f"{k}={v}")
+			if extra:
+				lines.append(f"    Tags: {', '.join(extra)}")
+
+		text = "\n".join(lines)
+		if hasattr(self.view, 'ffprobe_result'):
+			self.view.ffprobe_result.setPlainText(text)
+
+	def _ffmpeg_log_probe(self, msg):
+		if hasattr(self.view, 'ffprobe_result'):
+			self.view.ffprobe_result.appendPlainText(msg)
 
 	def _get_duration(self, filepath):
 		try:
