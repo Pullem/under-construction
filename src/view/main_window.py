@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 							 QPushButton, QTabWidget, QTabBar, QTextEdit,
 							 QStackedWidget, QMessageBox, QStyle, QStyleOptionTab,
 							 QDateEdit, QTimeEdit, QCheckBox, QComboBox, QSlider,
-							 QPlainTextEdit, QProgressBar, QGridLayout)
+							 QPlainTextEdit, QProgressBar, QGridLayout, QFileDialog)
 from PyQt6.QtCore import pyqtSignal, Qt, QSize, QDate, QTime, QDateTime, QProcess
 from PyQt6.QtGui import QPixmap, QPainter, QColor
 
@@ -102,6 +102,7 @@ class MainWindowMixin(QMainWindow):
 		self._build_metadata_tab()
 		self._build_ffprobe_tab()
 		self._build_ffmpeg_tab()
+		self._build_hex_tab()
 		self._build_analysis_tab()
 		self._build_placeholder_tab("Export")
 		self._build_settings_tab()
@@ -513,6 +514,7 @@ class MainWindowMixin(QMainWindow):
 		self.ffmpeg_log.clear()
 		self.ffmpeg_progress.setValue(0)
 		self._update_ffmpeg_encoded_date(path)
+		self.set_hex_file(path)
 
 	def _update_ffmpeg_encoded_date(self, path):
 		try:
@@ -698,6 +700,65 @@ class MainWindowMixin(QMainWindow):
 		if new_pw:
 			self.update_db_password_requested.emit(new_pw)
 		self.save_settings_requested.emit(case_root)
+
+	def _build_hex_tab(self):
+		widget = QWidget()
+		layout = QVBoxLayout(widget)
+
+		layout.addWidget(QLabel("<b>Hex-Viewer</b>"))
+		layout.addSpacing(8)
+
+		toolbar = QHBoxLayout()
+		self.hex_file_label = QLabel("–")
+		self.hex_file_label.setStyleSheet("color: #aaa;")
+		toolbar.addWidget(self.hex_file_label, 1)
+
+		self.hex_open_btn = QPushButton("Öffnen")
+		self.hex_open_btn.clicked.connect(self._on_hex_open)
+		toolbar.addWidget(self.hex_open_btn)
+
+		self.hex_goto_input = QLineEdit()
+		self.hex_goto_input.setPlaceholderText("Offset (hex)")
+		self.hex_goto_input.setFixedWidth(120)
+		toolbar.addWidget(self.hex_goto_input)
+
+		self.hex_goto_btn = QPushButton("Gehe zu")
+		self.hex_goto_btn.clicked.connect(self._on_hex_goto)
+		toolbar.addWidget(self.hex_goto_btn)
+
+		layout.addLayout(toolbar)
+
+		self.hex_viewer = HexViewWidget()
+		self.hex_viewer.setStyleSheet("border: 1px solid #333;")
+		layout.addWidget(self.hex_viewer, 1)
+
+		self.hex_status = QLabel("–")
+		self.hex_status.setStyleSheet("color: #888;")
+		layout.addWidget(self.hex_status)
+
+		self.nav_bar.addTab("Hex-Viewer")
+		self.content_stack.addWidget(widget)
+
+	def _on_hex_open(self):
+		path, _ = QFileDialog.getOpenFileName(
+			self, "Datei öffnen", "",
+			"Alle Dateien (*.*)"
+		)
+		if path:
+			self.set_hex_file(path)
+
+	def _on_hex_goto(self):
+		self.hex_viewer.goto_offset(self.hex_goto_input.text())
+
+	def set_hex_file(self, path):
+		self.hex_viewer.set_file(path)
+		self.hex_file_label.setText(path)
+		self.hex_file_label.setToolTip(path)
+		size = self.hex_viewer._file_size
+		if size > 0:
+			self.hex_status.setText(f"Datei: {path}  |  Größe: {size:,} Bytes  |  Zeilen: {self.hex_viewer._total_lines:,}")
+		else:
+			self.hex_status.setText("–")
 
 	def _build_analysis_tab(self):
 		widget = QWidget()
