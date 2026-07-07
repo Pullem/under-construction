@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 from PyQt6.QtCore import pyqtSignal, Qt, QSize, QDate, QTime, QDateTime, QProcess
 from PyQt6.QtGui import QPixmap, QPainter, QColor
 
+from .hex_view import HexViewWidget
 
 # ---------------------------------------------------------
 # CUSTOM TAB BAR (flaches Design, horizontale Schrift)

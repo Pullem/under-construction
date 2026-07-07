@@ -4,10 +4,10 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
-from PyQt6.QtCore import QProcess, QByteArray
+from PyQt6.QtCore import QProcess, QByteArray, QThreadPool
 
 from ..model.base import BASE_DIR
-from ..worker import AnalysisWorker
+from ..worker import AnalysisWorker, FfprobeWorker
 
 
 class FfmpegOpsMixin:
@@ -200,35 +200,84 @@ class FfmpegOpsMixin:
 		return None
 
 	def handle_ffprobe_analyse(self, filepath, mode):
-		if mode == "streams":
-			self._run_ffprobe_streams(filepath)
-		elif mode == "pts_dts":
-			self._run_ffprobe_pts_dts(filepath)
-		elif mode == "frame_dist":
-			self._run_ffprobe_frame_dist(filepath)
-		elif mode == "freeze":
-			self._run_ffmpeg_freezedetect(filepath)
-		elif mode == "blackdetect":
-			self._run_ffmpeg_blackdetect(filepath)
-		elif mode == "scenedetect":
-			self._run_ffmpeg_scenedetect(filepath)
-		elif mode == "silencedetect":
-			self._run_ffmpeg_silencedetect(filepath)
-		elif mode == "bitrate":
-			self._run_ffprobe_bitrate(filepath)
-		elif mode == "quickcheck":
-			self._run_ffprobe_quickcheck(filepath)
+		self._last_probe_path = filepath
+		cmd = self._build_ffprobe_cmd(filepath, mode)
+		if not cmd:
+			self._ffmpeg_log_probe(f"Unbekannter Modus: {mode}")
+			return
+		self._ffmpeg_log_probe(f"Starte {mode} (async)...")
+		worker = FfprobeWorker(filepath, mode, cmd)
+		worker.signals.result.connect(self._on_ffprobe_result)
+		worker.signals.error.connect(self._on_ffprobe_error)
+		self.threadpool.start(worker)
 
-	def _run_ffprobe_quickcheck(self, filepath):
+	def _build_ffprobe_cmd(self, filepath, mode):
+		if mode == "streams":
+			return [str(BASE_DIR / "ffprobe.exe"), "-v", "error",
+					"-show_streams", "-show_format", "-of", "json", filepath]
+		if mode == "pts_dts":
+			return [str(BASE_DIR / "ffprobe.exe"), "-v", "error",
+					"-select_streams", "v:0", "-show_packets", "-of", "json", filepath]
+		if mode == "frame_dist":
+			return [str(BASE_DIR / "ffprobe.exe"), "-v", "error",
+					"-select_streams", "v:0", "-show_frames", "-of", "json", filepath]
+		if mode == "freeze":
+			return [str(BASE_DIR / "ffmpeg.exe"), "-v", "info", "-i", filepath,
+					"-vf", "freezedetect", "-f", "null", "-"]
+		if mode == "blackdetect":
+			return [str(BASE_DIR / "ffmpeg.exe"), "-v", "info", "-i", filepath,
+					"-vf", "blackdetect=d=1.0:pic_th=0.98", "-f", "null", "-"]
+		if mode == "scenedetect":
+			return [str(BASE_DIR / "ffmpeg.exe"), "-v", "info", "-i", filepath,
+					"-vf", "scdet", "-f", "null", "-"]
+		if mode == "silencedetect":
+			return [str(BASE_DIR / "ffmpeg.exe"), "-v", "info", "-i", filepath,
+					"-af", "silencedetect=n=-30dB:d=0.5", "-f", "null", "-"]
+		if mode == "bitrate":
+			return [str(BASE_DIR / "ffprobe.exe"), "-v", "error",
+					"-select_streams", "v:0", "-show_packets", "-of", "json", filepath]
+		if mode == "quickcheck":
+			return [str(BASE_DIR / "ffprobe.exe"), "-v", "error",
+					"-show_streams", "-show_format", "-of", "json", filepath]
+		return []
+
+	def _on_ffprobe_result(self, mode, stdout, stderr):
+		path = getattr(self, '_last_probe_path', None) or ""
+		if mode == "streams":
+			self._run_ffprobe_streams(path, stdout)
+		elif mode == "pts_dts":
+			self._run_ffprobe_pts_dts(path, stdout)
+		elif mode == "frame_dist":
+			self._run_ffprobe_frame_dist(path, stdout)
+		elif mode == "freeze":
+			self._run_ffmpeg_freezedetect(path, stderr)
+		elif mode == "blackdetect":
+			self._run_ffmpeg_blackdetect(path, stderr)
+		elif mode == "scenedetect":
+			self._run_ffmpeg_scenedetect(path, stderr)
+		elif mode == "silencedetect":
+			self._run_ffmpeg_silencedetect(path, stderr)
+		elif mode == "bitrate":
+			self._run_ffprobe_bitrate(path, stdout)
+		elif mode == "quickcheck":
+			self._run_ffprobe_quickcheck(path, stdout)
+
+	def _on_ffprobe_error(self, mode, error_msg):
+		self._ffmpeg_log_probe(f"Fehler bei {mode}: {error_msg}")
+
+	def _run_ffprobe_quickcheck(self, filepath, raw_output=None):
 		self._ffmpeg_log_probe(f"Quick-Check: {filepath}")
 		try:
-			r = subprocess.run(
-				[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
-				 "-show_streams", "-show_format",
-				 "-of", "json", filepath],
-				capture_output=True, text=True, timeout=30
-			)
-			data = json.loads(r.stdout)
+			if raw_output is not None:
+				data = json.loads(raw_output)
+			else:
+				r = subprocess.run(
+					[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
+					 "-show_streams", "-show_format",
+					 "-of", "json", filepath],
+					capture_output=True, text=True, timeout=30
+				)
+				data = json.loads(r.stdout)
 		except Exception as e:
 			self._ffmpeg_log_probe(f"Fehler: {e}")
 			return
@@ -348,16 +397,19 @@ class FfmpegOpsMixin:
 			lines.append("Ergebnis: KRITISCHE PROBLEME – Datei nicht sauber")
 		self._write_probe_result(lines)
 
-	def _run_ffprobe_streams(self, filepath):
+	def _run_ffprobe_streams(self, filepath, raw_output=None):
 		self._ffmpeg_log_probe(f"Analysiere: {filepath}")
 		try:
-			r = subprocess.run(
-				[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
-				 "-show_streams", "-show_format",
-				 "-of", "json", filepath],
-				capture_output=True, text=True, timeout=30
-			)
-			data = json.loads(r.stdout)
+			if raw_output is not None:
+				data = json.loads(raw_output)
+			else:
+				r = subprocess.run(
+					[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
+					 "-show_streams", "-show_format",
+					 "-of", "json", filepath],
+					capture_output=True, text=True, timeout=30
+				)
+				data = json.loads(r.stdout)
 		except Exception as e:
 			self._ffmpeg_log_probe(f"ffprobe Fehler: {e}")
 			return
@@ -415,16 +467,19 @@ class FfmpegOpsMixin:
 
 		self._write_probe_result(lines)
 
-	def _run_ffprobe_pts_dts(self, filepath):
+	def _run_ffprobe_pts_dts(self, filepath, raw_output=None):
 		self._ffmpeg_log_probe(f"PTS/DTS-Check: {filepath}")
 		try:
-			r = subprocess.run(
-				[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
-				 "-select_streams", "v:0",
-				 "-show_packets", "-of", "json", filepath],
-				capture_output=True, text=True, timeout=60
-			)
-			data = json.loads(r.stdout)
+			if raw_output is not None:
+				data = json.loads(raw_output)
+			else:
+				r = subprocess.run(
+					[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
+					 "-select_streams", "v:0",
+					 "-show_packets", "-of", "json", filepath],
+					capture_output=True, text=True, timeout=60
+				)
+				data = json.loads(r.stdout)
 		except Exception as e:
 			self._ffmpeg_log_probe(f"Fehler: {e}")
 			return
@@ -466,16 +521,19 @@ class FfmpegOpsMixin:
 
 		self._write_probe_result(lines)
 
-	def _run_ffprobe_frame_dist(self, filepath):
+	def _run_ffprobe_frame_dist(self, filepath, raw_output=None):
 		self._ffmpeg_log_probe(f"Frame-Verteilung: {filepath}")
 		try:
-			r = subprocess.run(
-				[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
-				 "-select_streams", "v:0",
-				 "-show_frames", "-of", "json", filepath],
-				capture_output=True, text=True, timeout=120
-			)
-			data = json.loads(r.stdout)
+			if raw_output is not None:
+				data = json.loads(raw_output)
+			else:
+				r = subprocess.run(
+					[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
+					 "-select_streams", "v:0",
+					 "-show_frames", "-of", "json", filepath],
+					capture_output=True, text=True, timeout=120
+				)
+				data = json.loads(r.stdout)
 		except Exception as e:
 			self._ffmpeg_log_probe(f"Fehler: {e}")
 			return
@@ -519,23 +577,25 @@ class FfmpegOpsMixin:
 
 		self._write_probe_result(lines)
 
-	def _run_ffmpeg_freezedetect(self, filepath):
+	def _run_ffmpeg_freezedetect(self, filepath, raw_output=None):
 		self._ffmpeg_log_probe(f"Freeze-Detect: {filepath}")
 		freeze_log = []
-		try:
-			r = subprocess.run(
-				[str(BASE_DIR / "ffmpeg.exe"), "-v", "info",
-				 "-i", filepath,
-				 "-vf", "freezedetect",
-				 "-f", "null", "-"],
-				capture_output=True, text=True, timeout=120
-			)
-			for line in (r.stdout + r.stderr).split("\n"):
-				if "freeze" in line.lower() or "dup" in line.lower():
-					freeze_log.append(line.strip())
-		except Exception as e:
-			self._ffmpeg_log_probe(f"Fehler: {e}")
-			return
+		if raw_output is None:
+			try:
+				r = subprocess.run(
+					[str(BASE_DIR / "ffmpeg.exe"), "-v", "info",
+					 "-i", filepath,
+					 "-vf", "freezedetect",
+					 "-f", "null", "-"],
+					capture_output=True, text=True, timeout=120
+				)
+				raw_output = r.stdout + "\n" + r.stderr
+			except Exception as e:
+				self._ffmpeg_log_probe(f"Fehler: {e}")
+				return
+		for line in raw_output.split("\n"):
+			if "freeze" in line.lower() or "dup" in line.lower():
+				freeze_log.append(line.strip())
 
 		lines = ["Freeze-Detect Ergebnisse", "-" * 50]
 		if freeze_log:
@@ -557,23 +617,25 @@ class FfmpegOpsMixin:
 		if hasattr(self.view, 'ffprobe_result'):
 			self.view.ffprobe_result.appendPlainText(msg)
 
-	def _run_ffmpeg_blackdetect(self, filepath):
+	def _run_ffmpeg_blackdetect(self, filepath, raw_output=None):
 		self._ffmpeg_log_probe(f"Black-Detect: {filepath}")
 		results = []
-		try:
-			r = subprocess.run(
-				[str(BASE_DIR / "ffmpeg.exe"), "-v", "info",
-				 "-i", filepath,
-				 "-vf", "blackdetect=d=1.0:pic_th=0.98",
-				 "-f", "null", "-"],
-				capture_output=True, text=True, timeout=120
-			)
-			for line in (r.stdout + r.stderr).split("\n"):
-				if "black_start" in line or "black_end" in line or "black_duration" in line:
-					results.append(line.strip())
-		except Exception as e:
-			self._ffmpeg_log_probe(f"Fehler: {e}")
-			return
+		if raw_output is None:
+			try:
+				r = subprocess.run(
+					[str(BASE_DIR / "ffmpeg.exe"), "-v", "info",
+					 "-i", filepath,
+					 "-vf", "blackdetect=d=1.0:pic_th=0.98",
+					 "-f", "null", "-"],
+					capture_output=True, text=True, timeout=120
+				)
+				raw_output = r.stdout + "\n" + r.stderr
+			except Exception as e:
+				self._ffmpeg_log_probe(f"Fehler: {e}")
+				return
+		for line in raw_output.split("\n"):
+			if "black_start" in line or "black_end" in line or "black_duration" in line:
+				results.append(line.strip())
 
 		lines = ["Black-Detect Ergebnisse", "-" * 50]
 		if results:
@@ -595,23 +657,25 @@ class FfmpegOpsMixin:
 			lines.append("Keine Schwarzblenden erkannt (d=1.0s, pic_th=0.98).")
 		self._write_probe_result(lines)
 
-	def _run_ffmpeg_scenedetect(self, filepath):
+	def _run_ffmpeg_scenedetect(self, filepath, raw_output=None):
 		self._ffmpeg_log_probe(f"Scene-Detect: {filepath}")
 		results = []
-		try:
-			r = subprocess.run(
-				[str(BASE_DIR / "ffmpeg.exe"), "-v", "info",
-				 "-i", filepath,
-				 "-vf", "scdet",
-				 "-f", "null", "-"],
-				capture_output=True, text=True, timeout=120
-			)
-			for line in (r.stdout + r.stderr).split("\n"):
-				if "lavfi.scd" in line:
-					results.append(line.strip())
-		except Exception as e:
-			self._ffmpeg_log_probe(f"Fehler: {e}")
-			return
+		if raw_output is None:
+			try:
+				r = subprocess.run(
+					[str(BASE_DIR / "ffmpeg.exe"), "-v", "info",
+					 "-i", filepath,
+					 "-vf", "scdet",
+					 "-f", "null", "-"],
+					capture_output=True, text=True, timeout=120
+				)
+				raw_output = r.stdout + "\n" + r.stderr
+			except Exception as e:
+				self._ffmpeg_log_probe(f"Fehler: {e}")
+				return
+		for line in raw_output.split("\n"):
+			if "lavfi.scd" in line:
+				results.append(line.strip())
 
 		lines = ["Scene-Detect Ergebnisse", "-" * 50]
 		if results:
@@ -625,23 +689,25 @@ class FfmpegOpsMixin:
 		lines.append("von Pixel-Differenzen. Score > 0 = Kandidat.")
 		self._write_probe_result(lines)
 
-	def _run_ffmpeg_silencedetect(self, filepath):
+	def _run_ffmpeg_silencedetect(self, filepath, raw_output=None):
 		self._ffmpeg_log_probe(f"Silence-Detect: {filepath}")
 		results = []
-		try:
-			r = subprocess.run(
-				[str(BASE_DIR / "ffmpeg.exe"), "-v", "info",
-				 "-i", filepath,
-				 "-af", "silencedetect=n=-30dB:d=0.5",
-				 "-f", "null", "-"],
-				capture_output=True, text=True, timeout=120
-			)
-			for line in (r.stdout + r.stderr).split("\n"):
-				if "silence_start" in line or "silence_end" in line or "silence_duration" in line:
-					results.append(line.strip())
-		except Exception as e:
-			self._ffmpeg_log_probe(f"Fehler: {e}")
-			return
+		if raw_output is None:
+			try:
+				r = subprocess.run(
+					[str(BASE_DIR / "ffmpeg.exe"), "-v", "info",
+					 "-i", filepath,
+					 "-af", "silencedetect=n=-30dB:d=0.5",
+					 "-f", "null", "-"],
+					capture_output=True, text=True, timeout=120
+				)
+				raw_output = r.stdout + "\n" + r.stderr
+			except Exception as e:
+				self._ffmpeg_log_probe(f"Fehler: {e}")
+				return
+		for line in raw_output.split("\n"):
+			if "silence_start" in line or "silence_end" in line or "silence_duration" in line:
+				results.append(line.strip())
 
 		lines = ["Silence-Detect Ergebnisse", "-" * 50]
 		if results:
@@ -663,16 +729,19 @@ class FfmpegOpsMixin:
 			lines.append("Keine Stille erkannt (n=-30dB, d=0.5s).")
 		self._write_probe_result(lines)
 
-	def _run_ffprobe_bitrate(self, filepath):
+	def _run_ffprobe_bitrate(self, filepath, raw_output=None):
 		self._ffmpeg_log_probe(f"Bitrate-Check: {filepath}")
 		try:
-			r = subprocess.run(
-				[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
-				 "-select_streams", "v:0",
-				 "-show_packets", "-of", "json", filepath],
-				capture_output=True, text=True, timeout=60
-			)
-			data = json.loads(r.stdout)
+			if raw_output is not None:
+				data = json.loads(raw_output)
+			else:
+				r = subprocess.run(
+					[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
+					 "-select_streams", "v:0",
+					 "-show_packets", "-of", "json", filepath],
+					capture_output=True, text=True, timeout=60
+				)
+				data = json.loads(r.stdout)
 		except Exception as e:
 			self._ffmpeg_log_probe(f"Fehler: {e}")
 			return
