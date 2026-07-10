@@ -115,6 +115,8 @@ class MainWindowMixin(QMainWindow):
 		# Navigation verknüpfen
 		self.nav_bar.currentChanged.connect(self.content_stack.setCurrentIndex)
 
+		self._refresh_timezone()
+
 		main_layout.addWidget(self.nav_bar)
 		main_layout.addWidget(self.content_stack, 1)
 		main_layout.addWidget(self.plugin_bar)
@@ -641,6 +643,12 @@ class MainWindowMixin(QMainWindow):
 		folder_layout.addWidget(btn_browse)
 		layout.addLayout(folder_layout)
 
+		layout.addSpacing(15)
+		layout.addWidget(QLabel("<b>Zeitzone (automatisch erkannt)</b>"))
+		self.lbl_tz_info = QLabel("–")
+		self.lbl_tz_info.setStyleSheet("color: #8f8; font-weight: bold; padding-left: 8px;")
+		layout.addWidget(self.lbl_tz_info)
+
 		layout.addSpacing(10)
 		btn_save = QPushButton("Einstellungen speichern")
 		btn_save.clicked.connect(self._on_save_settings)
@@ -661,6 +669,7 @@ class MainWindowMixin(QMainWindow):
 		self._update_root_password_display()
 		self.txt_case_root.setText(case_root or "")
 		self.txt_new_db_password.clear()
+		self._refresh_timezone()
 
 	def _update_password_display(self):
 		if self._raw_db_password:
@@ -816,6 +825,28 @@ class MainWindowMixin(QMainWindow):
 		layout.addWidget(label)
 		self.nav_bar.addTab(title)
 		self.content_stack.addWidget(widget)
+
+	@staticmethod
+	def _get_current_utc_offset():
+		from datetime import datetime, timedelta
+		now = datetime.now()
+		mar = datetime(now.year, 3, 31)
+		last_sun_mar = mar - timedelta(days=(mar.weekday() + 1) % 7)
+		oct_ = datetime(now.year, 10, 31)
+		last_sun_oct = oct_ - timedelta(days=(oct_.weekday() + 1) % 7)
+		return 2 if last_sun_mar <= now < last_sun_oct else 1
+
+	def _refresh_timezone(self):
+		offset = self._get_current_utc_offset()
+		name = "Sommerzeit UTC+2 (MESZ)" if offset == 2 else "Winterzeit UTC+1 (MEZ)"
+		if hasattr(self, 'lbl_tz_info'):
+			self.lbl_tz_info.setText(name)
+		for combo_name in ('ffmpeg_utc_combo', 'cbo_offset'):
+			combo = getattr(self, combo_name, None)
+			if combo:
+				idx = combo.findData(offset)
+				if idx >= 0:
+					combo.setCurrentIndex(idx)
 
 	def _on_bis_toggled(self, checked):
 		self.d_incident_until.setVisible(checked)
