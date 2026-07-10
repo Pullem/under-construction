@@ -56,25 +56,31 @@ class FfmpegOpsMixin:
 			if fps:
 				filter_str = filter_str.replace("rate=25", f"rate={fps}")
 
-		out_path = None
 		bitstream_mode = (filter_str == "__BITSTREAM__")
+		framehash_mode = (filter_str == "-f framehash -")
 
 		if bitstream_mode:
+			out_path_capture = None
 			cmd = [str(BASE_DIR / "ffmpeg.exe"), "-i", str(src), "-f", "null", "-"]
+		elif framehash_mode:
+			out_path_capture = None
+			cmd = [str(BASE_DIR / "ffmpeg.exe"), "-y"]
+			if start_ts != "00:00:00":
+				cmd += ["-ss", start_ts]
+			cmd += ["-i", str(src)]
+			cmd += ["-f", "framehash", "-"]
 		else:
+			out_path_capture = out_path
 			cmd = [str(BASE_DIR / "ffmpeg.exe"), "-y"]
 			if start_ts != "00:00:00":
 				cmd += ["-ss", start_ts]
 			cmd += ["-i", str(src)]
 			if end_ts:
 				cmd += ["-to", end_ts]
-			if filter_str and filter_str not in ("-f framehash -",):
+			if filter_str:
 				cmd += ["-vf", filter_str]
-			if filter_str == "-f framehash -":
-				cmd += ["-f", "framehash", "-"]
-			else:
-				cmd += codec_args
-				cmd.append(str(out_path))
+			cmd += codec_args
+			cmd.append(str(out_path_capture))
 
 		self._ffmpeg_log(f"Starte: {' '.join(cmd)}")
 		if hasattr(self.view, 'ffmpeg_progress'):
@@ -87,7 +93,7 @@ class FfmpegOpsMixin:
 		self._ffmpeg_proc = QProcess()
 		self._ffmpeg_proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
 
-		if not bitstream_mode:
+		if not bitstream_mode and not framehash_mode:
 			# Fontconfig für Windows einrichten (drawtext braucht es)
 			env = self._ffmpeg_proc.processEnvironment()
 			fc_path = self._setup_fontconfig()
@@ -108,7 +114,7 @@ class FfmpegOpsMixin:
 			lambda: self._on_ffmpeg_output(timecode_pattern)
 		)
 		self._ffmpeg_proc.finished.connect(
-			lambda exit_code, status: self._on_ffmpeg_finished(exit_code, status, out_path)
+			lambda exit_code, status, captured=out_path_capture: self._on_ffmpeg_finished(exit_code, status, captured)
 		)
 
 		self._ffmpeg_timecode = timecode_pattern
@@ -156,6 +162,94 @@ class FfmpegOpsMixin:
 				self.view.ffmpeg_btn_run.setEnabled(True)
 			if hasattr(self.view, 'ffmpeg_btn_abort'):
 				self.view.ffmpeg_btn_abort.setEnabled(False)
+
+	def handle_lossless_trim(self, input_path, start_frame, end_frame, mode):
+		src = Path(input_path)
+		if not src.exists():
+			self._ffmpeg_log(f"Datei nicht gefunden: {input_path}")
+			return
+		fps = self._get_framerate(str(src)) or 25.0
+		start_ts = self._frame_to_timestamp(start_frame, fps)
+		end_ts = self._frame_to_timestamp(end_frame, fps)
+		self._ffmpeg_log(f"Lossless Trim: Frame {start_frame}–{end_frame}  ({start_ts} – {end_ts})  Mode: {mode}")
+
+		exports_dir = Path(self.model.current_case_path) / "exports" if self.model.current_case_path else Path()
+		exports_dir.mkdir(parents=True, exist_ok=True)
+		stem = src.stem
+		ext = "mkv"
+		codec_args = ["-c:v", "ffv1"]
+		if mode == "stream_copy":
+			ext = src.suffix[1:] if src.suffix else "mkv"
+			codec_args = ["-c:v", "copy"]
+		out_filename = f"{stem}_trim_lossless.{ext}"
+		out_path = exports_dir / out_filename
+		out_idx = 1
+		while out_path.exists():
+			out_filename = f"{stem}_trim_lossless_{out_idx}.{ext}"
+			out_path = exports_dir / out_filename
+			out_idx += 1
+
+		cmd = [str(BASE_DIR / "ffmpeg.exe"), "-y",
+			   "-ss", start_ts, "-i", str(src),
+			   "-to", end_ts,
+			   *codec_args,
+			   "-avoid_negative_ts", "make_zero",
+			   str(out_path)]
+		self._ffmpeg_log(f"Starte: {' '.join(cmd)}")
+		if hasattr(self.view, 'ffmpeg_progress'):
+			self.view.ffmpeg_progress.setValue(0)
+		if hasattr(self.view, 'ffmpeg_btn_run'):
+			self.view.ffmpeg_btn_run.setEnabled(False)
+		if hasattr(self.view, 'ffmpeg_btn_abort'):
+			self.view.ffmpeg_btn_abort.setEnabled(True)
+
+		self._ffmpeg_proc = QProcess()
+		self._ffmpeg_proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+		dur = self._get_duration(str(src))
+		self._ffmpeg_proc.readyReadStandardOutput.connect(
+			lambda: self._on_ffmpeg_output(dur)
+		)
+		self._ffmpeg_proc.finished.connect(
+			lambda exit_code, status, captured=out_path: self._on_ffmpeg_finished(exit_code, status, captured)
+		)
+		self._ffmpeg_proc.start(cmd[0], cmd[1:])
+
+	@staticmethod
+	def _frame_to_timestamp(frame, fps):
+		total_s = frame / fps
+		h = int(total_s // 3600)
+		m = int((total_s % 3600) // 60)
+		s = total_s - h * 3600 - m * 60
+		return f"{h:02d}:{m:02d}:{s:06.3f}"
+
+	def _get_keyframes(self, filepath):
+		"""Returns sorted list of (frame_number, pts_seconds) for keyframes."""
+		try:
+			r = subprocess.run(
+				[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
+				 "-select_streams", "v:0",
+				 "-skip_frame", "nokey",
+				 "-show_frames",
+				 "-show_entries", "frame=coded_picture_number,pkt_pts_time",
+				 "-of", "csv=p=0", filepath],
+				capture_output=True, text=True, timeout=120
+			)
+			keyframes = []
+			for line in r.stdout.strip().split("\n"):
+				line = line.strip()
+				if not line or "," not in line:
+					continue
+				frame_str, pts_str = line.split(",", 1)
+				if frame_str and pts_str:
+					try:
+						keyframes.append((int(float(frame_str)), float(pts_str)))
+					except ValueError:
+						pass
+			keyframes.sort()
+			return keyframes
+		except Exception as e:
+			self._ffmpeg_log(f"Keyframe-Erkennung fehlgeschlagen: {e}")
+			return []
 
 	def _ffmpeg_log(self, msg):
 		if hasattr(self.view, 'ffmpeg_log'):

@@ -12,6 +12,7 @@ from PyQt6.QtCore import pyqtSignal, Qt, QSize, QDate, QTime, QDateTime, QProces
 from PyQt6.QtGui import QPixmap, QPainter, QColor
 
 from .hex_view import HexViewWidget
+from .trim_widget import TrimWidget
 
 # ---------------------------------------------------------
 # CUSTOM TAB BAR (flaches Design, horizontale Schrift)
@@ -66,6 +67,7 @@ class MainWindowMixin(QMainWindow):
 	ffmpeg_run_requested = pyqtSignal(str, str, str)
 	ffmpeg_abort_requested = pyqtSignal()
 	ffprobe_analyse_requested = pyqtSignal(str, str)
+	ffmpeg_lossless_trim_requested = pyqtSignal(str, int, int, str)
 
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
@@ -325,6 +327,7 @@ class MainWindowMixin(QMainWindow):
 		file_layout.addWidget(self.ffmpeg_file_label, 1)
 		self.ffmpeg_input_path = ""  # wird vom Presenter gesetzt
 		self.ffmpeg_btn_browse = QPushButton("Durchsuchen")
+		self.ffmpeg_btn_browse.clicked.connect(self._on_ffmpeg_browse)
 		file_layout.addWidget(self.ffmpeg_btn_browse)
 		layout.addLayout(file_layout)
 
@@ -348,10 +351,10 @@ class MainWindowMixin(QMainWindow):
 		layout.addLayout(preset_grid)
 
 		# Parameter
-		param_group = QWidget()
-		param_group.setStyleSheet("QWidget#ffmpeg_params { border: 1px solid #444; padding: 6px; }")
-		param_group.setObjectName("ffmpeg_params")
-		param_layout = QHBoxLayout(param_group)
+		self.ffmpeg_params_group = QWidget()
+		self.ffmpeg_params_group.setStyleSheet("QWidget#ffmpeg_params { border: 1px solid #444; padding: 6px; }")
+		self.ffmpeg_params_group.setObjectName("ffmpeg_params")
+		param_layout = QHBoxLayout(self.ffmpeg_params_group)
 
 		param_layout.addWidget(QLabel("Start:"))
 		self.ffmpeg_start = QTimeEdit(QTime(0, 0))
@@ -377,7 +380,12 @@ class MainWindowMixin(QMainWindow):
 		self.ffmpeg_filter.setPlaceholderText("z.B. scale=1280:720,eq=brightness=0.2")
 		param_layout.addWidget(self.ffmpeg_filter, 1)
 
-		layout.addWidget(param_group)
+		layout.addWidget(self.ffmpeg_params_group)
+
+		# Lossless Trim Widget (initially hidden)
+		self.trim_widget = TrimWidget()
+		self.trim_widget.setVisible(False)
+		layout.addWidget(self.trim_widget)
 
 		# Encoded date / time info + UTC-Offset
 		date_layout = QHBoxLayout()
@@ -426,22 +434,32 @@ class MainWindowMixin(QMainWindow):
 		self.nav_bar.addTab("ffmpeg")
 		self.content_stack.addWidget(widget)
 
+	def _show_trim_widget(self):
+		self.ffmpeg_params_group.setVisible(False)
+		self.trim_widget.setVisible(True)
+
+	def _hide_trim_widget(self):
+		self.trim_widget.setVisible(False)
+		self.ffmpeg_params_group.setVisible(True)
+
 	def _ffmpeg_preset_trim(self):
-		self.ffmpeg_filter.clear()
-		self.ffmpeg_format.setCurrentIndex(0)
+		self._show_trim_widget()
 
 	def _ffmpeg_preset_frames(self):
+		self._hide_trim_widget()
 		self.ffmpeg_filter.setText("fps=1/10")
 		self.ffmpeg_format.setCurrentIndex(0)
 		self.ffmpeg_end.clear()
 
 	def _ffmpeg_preset_audio(self):
+		self._hide_trim_widget()
 		self.ffmpeg_filter.clear()
 		self.ffmpeg_format.setCurrentIndex(0)
 		self.ffmpeg_start.setTime(QTime(0, 0))
 		self.ffmpeg_end.clear()
 
 	def _ffmpeg_preset_timecode(self):
+		self._hide_trim_widget()
 		self.ffmpeg_filter.setText(
 			"drawtext=timecode='00\\:00\\:00\\:00':rate=25:fontsize=20:fontcolor=white:x=10:y=10,"
 			"drawtext=timecode='__REALTIME__':rate=25:fontsize=20:fontcolor=white:x=main_w-text_w-10:y=10"
@@ -451,21 +469,24 @@ class MainWindowMixin(QMainWindow):
 		self.ffmpeg_end.clear()
 
 	def _ffmpeg_preset_container(self):
+		self._hide_trim_widget()
 		self.ffmpeg_filter.clear()
 		self.ffmpeg_format.setCurrentIndex(0)
 		self.ffmpeg_start.setTime(QTime(0, 0))
 		self.ffmpeg_end.clear()
 
 	def _ffmpeg_preset_hash(self):
+		self._hide_trim_widget()
 		self.ffmpeg_filter.setText("-f framehash -")
 		self.ffmpeg_format.setCurrentIndex(0)
 		self.ffmpeg_start.setTime(QTime(0, 0))
 		self.ffmpeg_end.clear()
 
 	def _ffmpeg_preset_custom(self):
-		pass
+		self._hide_trim_widget()
 
 	def _ffmpeg_preset_bitstream(self):
+		self._hide_trim_widget()
 		self.ffmpeg_filter.setText("__BITSTREAM__")
 
 	def _on_ffmpeg_run(self):
@@ -473,6 +494,19 @@ class MainWindowMixin(QMainWindow):
 		if not inp:
 			QMessageBox.warning(self, "Keine Datei", "Bitte zuerst eine Datei auswählen.")
 			return
+
+		# Lossless Trim via TrimWidget
+		if self.trim_widget.isVisible():
+			start_f = self.trim_widget.get_start_frame()
+			end_f = self.trim_widget.get_end_frame()
+			mode = self.trim_widget.get_trim_mode()
+			if end_f <= start_f:
+				QMessageBox.warning(self, "Ungültiger Bereich",
+									"Der Endframe muss größer als der Startframe sein.")
+				return
+			self.ffmpeg_lossless_trim_requested.emit(inp, start_f, end_f, mode)
+			return
+
 		start = self.ffmpeg_start.time().toString("HH:mm:ss")
 		end = self.ffmpeg_end.time().toString("HH:mm:ss") if self.ffmpeg_end.time() != QTime(0, 0) else ""
 		filter_str = self.ffmpeg_filter.text().strip()
@@ -507,6 +541,9 @@ class MainWindowMixin(QMainWindow):
 		)
 		if path:
 			self.set_ffmpeg_file(path)
+			# load into trim widget as well (safe to call even if hidden)
+			from .trim_widget import TrimWidget
+			self.trim_widget.load_file(path)
 
 	def set_ffmpeg_file(self, path):
 		self.ffmpeg_input_path = path
@@ -518,6 +555,7 @@ class MainWindowMixin(QMainWindow):
 		self.ffmpeg_progress.setValue(0)
 		self._update_ffmpeg_encoded_date(path)
 		self.set_hex_file(path)
+		self.trim_widget.load_file(path)
 
 	def _update_ffmpeg_encoded_date(self, path):
 		try:

@@ -58,6 +58,9 @@ class PresenterBase:
 		if hasattr(self.view, "ffmpeg_abort_requested"):
 			self.view.ffmpeg_abort_requested.connect(self.handle_ffmpeg_abort)
 
+		if hasattr(self.view, "ffmpeg_lossless_trim_requested"):
+			self.view.ffmpeg_lossless_trim_requested.connect(self.handle_lossless_trim)
+
 		if hasattr(self.view, "ffprobe_analyse_requested"):
 			self.view.ffprobe_analyse_requested.connect(self.handle_ffprobe_analyse)
 
