@@ -111,11 +111,20 @@ class TimelineWidget(QWidget):
 		layout.addWidget(self._legend_widget)
 
 	def refresh(self, media_files, case_data, offset_hours=0, zoom_pct=100):
+		hbar = self._view.horizontalScrollBar()
+		old_ratio = 0.5
+		if hbar.maximum() > 0:
+			old_ratio = hbar.value() / max(1, hbar.maximum())
+
 		self._media_files = media_files
 		self._case_data = case_data or {}
 		self._offset_hours = offset_hours
 		self._zoom_pct = zoom_pct
 		self._render()
+
+		hbar = self._view.horizontalScrollBar()
+		if hbar.maximum() > 0:
+			hbar.setValue(int(old_ratio * hbar.maximum()))
 
 	def _render(self):
 		self._scene.clear()
