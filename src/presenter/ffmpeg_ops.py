@@ -41,7 +41,18 @@ class FfmpegOpsMixin:
 		}
 		ext, codec_args = codec_map.get(codec_fmt, ("mkv", ["-c:v", "ffv1"]))
 
-		op_name = "trim" if end_ts else "proc"
+		if filter_str == "__BITSTREAM__":
+			op_name = "bitstream"
+		elif filter_str == "-f framehash -":
+			op_name = "hash"
+		elif "drawtext" in filter_str and "timecode" in filter_str:
+			op_name = "tc"
+		elif filter_str.startswith("fps="):
+			op_name = "frames"
+		elif end_ts:
+			op_name = "trim"
+		else:
+			op_name = "proc"
 		out_filename = f"{stem}_{op_name}.{ext}"
 		out_path = exports_dir / out_filename
 		out_idx = 1

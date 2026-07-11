@@ -48,35 +48,49 @@ class TrimWidget(QWidget):
 		mode_layout.addStretch()
 		layout.addLayout(mode_layout)
 
-		# Preview + Timeline
-		timeline_row = QHBoxLayout()
+		# Preview-Zeile (oberhalb Timeline)
+		preview_row = QHBoxLayout()
+		preview_row.setSpacing(20)
 
+		preview_col_start = QVBoxLayout()
+		preview_col_start.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		self._lbl_preview_title_start = QLabel("Start")
+		self._lbl_preview_title_start.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		self._lbl_preview_title_start.setStyleSheet("color: #4FC3F7; font-size: 8pt;")
+		preview_col_start.addWidget(self._lbl_preview_title_start)
 		self._preview_start_label = QLabel()
-		self._preview_start_label.setFixedSize(100, 60)
+		self._preview_start_label.setFixedSize(768, 576)
 		self._preview_start_label.setStyleSheet("background: #111; border: 1px solid #4FC3F7;")
-		timeline_row.addWidget(self._preview_start_label)
+		preview_col_start.addWidget(self._preview_start_label, alignment=Qt.AlignmentFlag.AlignCenter)
+		preview_row.addLayout(preview_col_start)
 
-		timeline_col = QVBoxLayout()
+		preview_row.addStretch()
+
+		preview_col_end = QVBoxLayout()
+		preview_col_end.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		self._lbl_preview_title_end = QLabel("Ende")
+		self._lbl_preview_title_end.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		self._lbl_preview_title_end.setStyleSheet("color: #FF7043; font-size: 8pt;")
+		preview_col_end.addWidget(self._lbl_preview_title_end)
+		self._preview_end_label = QLabel()
+		self._preview_end_label.setFixedSize(768, 576)
+		self._preview_end_label.setStyleSheet("background: #111; border: 1px solid #FF7043;")
+		preview_col_end.addWidget(self._preview_end_label, alignment=Qt.AlignmentFlag.AlignCenter)
+		preview_row.addLayout(preview_col_end)
+
+		layout.addLayout(preview_row)
+
 		# Zeit-Label über der Timeline
 		self._time_label = QLabel("—")
 		self._time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 		self._time_label.setStyleSheet("color: #aaa; font-family: Consolas; font-size: 9pt;")
-		timeline_col.addWidget(self._time_label)
+		layout.addWidget(self._time_label)
 
 		# Timeline-Bar (wird in paintEvent gemalt)
 		self._timeline_bar = _TimelineBar(self)
 		self._timeline_bar.setMinimumHeight(50)
 		self._timeline_bar.trim_changed.connect(self._on_bar_trim_changed)
-		timeline_col.addWidget(self._timeline_bar, 1)
-
-		timeline_row.addLayout(timeline_col)
-
-		self._preview_end_label = QLabel()
-		self._preview_end_label.setFixedSize(100, 60)
-		self._preview_end_label.setStyleSheet("background: #111; border: 1px solid #FF7043;")
-		timeline_row.addWidget(self._preview_end_label)
-
-		layout.addLayout(timeline_row)
+		layout.addWidget(self._timeline_bar, 1)
 
 		# Info-Zeile
 		info_layout = QHBoxLayout()
@@ -317,7 +331,7 @@ class TrimWidget(QWidget):
 			return
 		pix = QPixmap()
 		if pix.loadFromData(buf.data(), "BMP"):
-			pix = pix.scaled(100, 60, Qt.AspectRatioMode.KeepAspectRatio,
+			pix = pix.scaled(768, 576, Qt.AspectRatioMode.KeepAspectRatio,
 							 Qt.TransformationMode.SmoothTransformation)
 			if target == "start":
 				self._preview_start_label.setPixmap(pix)

@@ -397,6 +397,12 @@ class MainWindowMixin(QMainWindow):
 		self.ffmpeg_utc_combo.addItem("UTC+1", 1)
 		self.ffmpeg_utc_combo.addItem("UTC+2", 2)
 		date_layout.addWidget(self.ffmpeg_utc_combo)
+		date_layout.addSpacing(20)
+		date_layout.addWidget(QLabel("TC-Pos:"))
+		self.ffmpeg_tc_pos = QComboBox()
+		self.ffmpeg_tc_pos.addItem("oben", "10")
+		self.ffmpeg_tc_pos.addItem("unten", "main_h-text_h-10")
+		date_layout.addWidget(self.ffmpeg_tc_pos)
 		date_layout.addStretch()
 		layout.addLayout(date_layout)
 
@@ -461,8 +467,8 @@ class MainWindowMixin(QMainWindow):
 	def _ffmpeg_preset_timecode(self):
 		self._hide_trim_widget()
 		self.ffmpeg_filter.setText(
-			"drawtext=timecode='00\\:00\\:00\\:00':rate=25:fontsize=20:fontcolor=white:x=10:y=10,"
-			"drawtext=timecode='__REALTIME__':rate=25:fontsize=20:fontcolor=white:x=main_w-text_w-10:y=10"
+			"drawtext=timecode='00\\:00\\:00\\:00':rate=25:fontsize=40:fontcolor=white:box=1:boxcolor=black@1:x=10:y=__POSITION__,"
+			"drawtext=timecode='__REALTIME__':rate=25:fontsize=40:fontcolor=white:box=1:boxcolor=black@1:x=main_w-text_w-10:y=__POSITION__"
 		)
 		self.ffmpeg_format.setCurrentIndex(0)
 		self.ffmpeg_start.setTime(QTime(0, 0))
@@ -527,6 +533,9 @@ class MainWindowMixin(QMainWindow):
 			# \: - Escapes für den Filterparser einbauen
 			realtime_val = realtime_plain.replace(":", "\\:")
 			filter_str = filter_str.replace("__REALTIME__", realtime_val)
+
+		if "__POSITION__" in filter_str:
+			filter_str = filter_str.replace("__POSITION__", self.ffmpeg_tc_pos.currentData())
 
 		self.ffmpeg_run_requested.emit(inp, start + "|" + end + "|" + filter_str, fmt)
 
