@@ -7,7 +7,8 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 							 QPushButton, QTabWidget, QTabBar, QTextEdit,
 							 QStackedWidget, QMessageBox, QStyle, QStyleOptionTab,
 							 QDateEdit, QTimeEdit, QCheckBox, QComboBox, QSlider,
-							 QPlainTextEdit, QProgressBar, QGridLayout, QFileDialog)
+							 QPlainTextEdit, QProgressBar, QGridLayout, QFileDialog,
+							 QSpinBox)
 from PyQt6.QtCore import pyqtSignal, Qt, QSize, QDate, QTime, QDateTime, QProcess
 from PyQt6.QtGui import QPixmap, QPainter, QColor
 

@@ -1,13 +1,12 @@
 import math
-from PyQt6.QtWidgets import QAbstractScrollArea, QWidget, QVBoxLayout, QHBoxLayout, \
-    QLabel, QPushButton, QLineEdit, QFileDialog, QMessageBox
+from PyQt6.QtWidgets import QAbstractScrollArea, QMessageBox
 from PyQt6.QtCore import Qt, QFile, pyqtSignal
-from PyQt6.QtGui import QPainter, QColor, QFont, QFontMetrics, QPen, QBrush
+from PyQt6.QtGui import QPainter, QColor, QFont, QFontMetrics
 
 
 class HexViewWidget(QAbstractScrollArea):
     CHARS_PER_LINE = 16
-    search_moved = pyqtSignal(int, int)  # index, total
+    search_moved = pyqtSignal(int, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -23,18 +22,17 @@ class HexViewWidget(QAbstractScrollArea):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.verticalScrollBar().valueChanged.connect(self.viewport().update)
 
-        # Farben
         self._col_offset = QColor("#888")
         self._col_hex = QColor("#88ddff")
         self._col_ascii = QColor("#88ff88")
         self._col_sep = QColor("#555")
         self._col_bg = QColor("#111")
+        self._col_header = QColor("#666")
         self._col_highlight = QColor("#665500")
         self._col_highlight_active = QColor("#886600")
 
-        # Suche
         self._search_pattern = b""
-        self._search_mode = "hex"  # "hex", "ascii", "text"
+        self._search_mode = "hex"
         self._search_results = []
         self._search_index = -1
 
@@ -92,8 +90,7 @@ class HexViewWidget(QAbstractScrollArea):
             QMessageBox.warning(self, "Fehler", "Offset außerhalb der Datei")
             return
         line = offset // self.CHARS_PER_LINE
-        sb = self.verticalScrollBar()
-        sb.setValue(line)
+        self.verticalScrollBar().setValue(line)
 
     # ---- Suche ----
 
@@ -106,7 +103,7 @@ class HexViewWidget(QAbstractScrollArea):
                 pattern_bytes = bytes.fromhex(pattern.replace(" ", "").replace("\\x", ""))
             elif mode == "ascii":
                 pattern_bytes = pattern.encode("ascii", errors="ignore")
-            else:  # text
+            else:
                 pattern_bytes = pattern.encode("utf-8")
         except Exception:
             self._clear_search()
@@ -182,25 +179,37 @@ class HexViewWidget(QAbstractScrollArea):
             painter.drawText(event.rect(), Qt.AlignmentFlag.AlignCenter, "Keine Datei geladen")
             return
 
+        cw = self._char_width
+        x_offset = 2
+        x_hex_start = x_offset + 9 * cw
+        hex_stride = 3 * cw                     # "XX " per byte
+        x_ascii_start = x_hex_start + self.CHARS_PER_LINE * 3 * cw + 1 * cw + 2 * cw  # hex + gap + "│ "
+        ascii_stride = 2 * cw                   # char + space
+
         scroll_val = self.verticalScrollBar().value()
         first_line = scroll_val
         last_line = min(self._total_lines, first_line + self._visible_lines + 1)
-
-        x_offset = 2
-        x_hex_start = x_offset + 9 * self._char_width
-        x_ascii_start = x_hex_start + 50 * self._char_width
         y_base = self._line_height
 
+        # Header: Spalten-Indizes 00–0F
+        painter.setPen(self._col_header)
+        header_parts = []
+        for i in range(self.CHARS_PER_LINE):
+            if i == 8:
+                header_parts.append(" ")
+            header_parts.append(f"{i:02x}")
+        header_str = " ".join(header_parts)
+        painter.drawText(x_hex_start, y_base, header_str)
+        line_y_offset = 1  # header uses 1 line
+
         for line_no in range(first_line, last_line):
-            y = y_base + (line_no - first_line) * self._line_height
+            y = y_base + (line_no - first_line + line_y_offset) * self._line_height
             offset = line_no * self.CHARS_PER_LINE
 
-            # Hervorhebung der Treffer-Zeile
-            hl_rect = QBrush(QColor("#1a1a2e"))
-            if self._search_results:
-                active_off = self._search_results[self._search_index] if self._search_index >= 0 else -1
-                active_line = active_off // self.CHARS_PER_LINE
-                if active_line == line_no:
+            # Treffer-Zeilen-Hintergrund
+            if self._search_results and self._search_index >= 0:
+                active_off = self._search_results[self._search_index]
+                if active_off // self.CHARS_PER_LINE == line_no:
                     painter.fillRect(0, y - self._line_height + 2,
                                      self.viewport().width(), self._line_height,
                                      QColor("#1a1a3e"))
@@ -208,10 +217,6 @@ class HexViewWidget(QAbstractScrollArea):
             # Offset
             painter.setPen(self._col_offset)
             painter.drawText(x_offset, y, f"{offset:08x}")
-
-            # Hex
-            painter.setPen(self._col_sep)
-            painter.drawText(x_hex_start - self._char_width, y, " ")
 
             self._file.seek(offset)
             raw = self._file.read(self.CHARS_PER_LINE)
@@ -229,61 +234,41 @@ class HexViewWidget(QAbstractScrollArea):
                     ascii_parts.append(" ")
 
             # Hex-String mit Extra-Space nach 8 Bytes
-            hex_str = ""
-            for i in range(0, self.CHARS_PER_LINE, 2):
-                if i > 0 and i % 8 == 0:
-                    hex_str += " "
-                hex_str += hex_parts[i] + hex_parts[i + 1] + " "
+            hex_parts_display = []
+            for i in range(self.CHARS_PER_LINE):
+                if i == 8:
+                    hex_parts_display.append(" ")
+                hex_parts_display.append(hex_parts[i])
+            hex_str = " ".join(hex_parts_display)
 
-            # Suche-Highlight in Hex + ASCII
+            # Hex mit Suche-Highlight
             if self._search_pattern and n > 0:
-                full_offset = offset
                 plen = len(self._search_pattern)
-                for soff in range(n):
-                    if soff + plen <= n and raw[soff:soff + plen] == self._search_pattern:
-                        abs_off = full_offset + soff
-                        is_active = self._search_results and self._search_index >= 0 and \
-                            self._search_results[self._search_index] == abs_off
-                        col = self._col_highlight_active if is_active else self._col_highlight
-                        # Hex-Highlight
-                        hextra = soff // 2
-                        hex_x = x_hex_start + hextra * 5 * self._char_width
-                        if soff % 2 == 0:
-                            off_extra = 0
-                        else:
-                            hextra_old = hextra
-                            hex_x = x_hex_start + hextra_old * 5 * self._char_width
-                        # Einfachere Methode: zeichne einzelne Hex-Paare
-                        for si in range(plen):
-                            bi = soff + si
-                            if bi >= n:
-                                break
-                            col_idx = bi
-                            pair_idx = col_idx // 2
-                            in_pair = col_idx % 2
-                            bx = x_hex_start + pair_idx * 5 * self._char_width + in_pair * 2 * self._char_width
-                            painter.setPen(col)
-                            painter.drawText(int(bx), y, f"{raw[bi]:02x}")
+                for soff in range(n - plen + 1):
+                    if raw[soff:soff + plen] != self._search_pattern:
+                        continue
+                    abs_off = offset + soff
+                    is_active = self._search_index >= 0 and self._search_results[self._search_index] == abs_off
+                    hl_col = self._col_highlight_active if is_active else self._col_highlight
+                    for si in range(plen):
+                        bi = soff + si
+                        if bi >= n:
+                            break
+                        bx = x_hex_start + bi * 3 * cw
+                        painter.setPen(hl_col)
+                        painter.drawText(int(bx), y, f"{raw[bi]:02x}")
+                        ax = x_ascii_start + bi * 2 * cw
+                        painter.drawText(int(ax), y, chr(raw[bi]) if 0x20 <= raw[bi] < 0x7f else ".")
 
-                        # ASCII-Highlight
-                        for si in range(plen):
-                            bi = soff + si
-                            if bi >= n:
-                                break
-                            ax = x_ascii_start + 2 * self._char_width + bi * self._char_width
-                            painter.setPen(col)
-                            ch = chr(raw[bi]) if 0x20 <= raw[bi] < 0x7f else "."
-                            painter.drawText(int(ax), y, ch)
-
-            # Normal-Hex (ohne Highlight) – nur zeichnen, wenn nicht bereits durch Highlight übermalt
+            # Normal-Hex (wird von Hervorhebung übermalt)
             painter.setPen(self._col_hex)
             painter.drawText(x_hex_start, y, hex_str)
 
             # ASCII
             painter.setPen(self._col_ascii)
-            painter.drawText(x_ascii_start, y, "│ " + "".join(ascii_parts))
+            painter.drawText(x_ascii_start, y, "│ " + " ".join(ascii_parts))
 
-        # Zeilen-Trennlinie
+        # Trennlinie
         painter.setPen(QColor("#333"))
-        painter.drawLine(x_ascii_start - self._char_width * 2, event.rect().top(),
-                         x_ascii_start - self._char_width * 2, event.rect().bottom())
+        sep_x = x_ascii_start - 2 * cw
+        painter.drawLine(sep_x, event.rect().top(), sep_x, event.rect().bottom())
