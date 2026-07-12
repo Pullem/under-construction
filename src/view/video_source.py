@@ -1,5 +1,4 @@
 import av
-import numpy as np
 from collections import OrderedDict
 from PyQt6.QtGui import QImage, QPixmap
 
@@ -79,11 +78,10 @@ class VideoSource:
 
 	def _frame_to_pixmap(self, frame):
 		try:
-			arr = frame.to_ndarray(format="rgb24")
-			if arr is None:
-				return None
-			h, w, *_ = arr.shape
-			img = QImage(arr.tobytes(), w, h, arr.strides[0], QImage.Format.Format_RGB888)
+			pil = frame.to_image().convert("RGB")
+			w, h = pil.size
+			data = pil.tobytes("raw", "RGB")
+			img = QImage(data, w, h, QImage.Format.Format_RGB888)
 			return QPixmap.fromImage(img)
 		except Exception as e:
 			print(f"Frame-Konvertierung fehlgeschlagen: {e}")

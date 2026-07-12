@@ -564,8 +564,14 @@ class MainWindowMixin(QMainWindow):
 		self.ffmpeg_log.clear()
 		self.ffmpeg_progress.setValue(0)
 		self._update_ffmpeg_encoded_date(path)
-		self.set_hex_file(path)
-		self.trim_widget.load_file(path)
+		try:
+			self.set_hex_file(path)
+		except Exception as e:
+			print(f"set_hex_file fehlgeschlagen: {e}")
+		try:
+			self.trim_widget.load_file(path)
+		except Exception as e:
+			print(f"trim_widget.load_file fehlgeschlagen: {e}")
 
 	def _update_ffmpeg_encoded_date(self, path):
 		try:
@@ -580,8 +586,8 @@ class MainWindowMixin(QMainWindow):
 			if out:
 				self.ffmpeg_encoded_label.setText(out)
 				return
-		except Exception:
-			pass
+		except Exception as e:
+			print(f"_update_ffmpeg_encoded_date ffprobe: {e}")
 
 		try:
 			conn = self._get_db_connection()
@@ -600,13 +606,12 @@ class MainWindowMixin(QMainWindow):
 					if ct:
 						self.ffmpeg_encoded_label.setText(ct)
 						return
-		except Exception:
-			pass
+		except Exception as e:
+			print(f"_update_ffmpeg_encoded_date db: {e}")
 
 		self.ffmpeg_encoded_label.setText("–")
 
 	def _get_db_connection(self):
-		from ..model.base import ModelBase
 		for cls in type(self).__mro__:
 			if hasattr(cls, 'get_connection'):
 				return cls.get_connection(self)

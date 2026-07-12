@@ -161,7 +161,11 @@ class TrimWidget(QWidget):
 		self._filepath = filepath
 		if not filepath or not Path(filepath).exists():
 			return
-		self._video.open(filepath)
+		try:
+			self._video.open(filepath)
+		except Exception as e:
+			print(f"VideoSource.open fehlgeschlagen: {e}")
+			return
 		self._fps = self._video.fps
 		self._total_frames = self._video.total_frames
 		self._keyframes = self._video.get_keyframes()

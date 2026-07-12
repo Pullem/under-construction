@@ -1,4 +1,5 @@
-import sys, os
+import sys, os, faulthandler
+faulthandler.enable()
 from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox, QLineEdit
@@ -14,6 +15,12 @@ PROJECT_INI = BASE_DIR / "config" / "project.ini"
 
 def main():
 	app = QApplication(sys.argv)
+
+	def excepthook(typ, val, tb):
+		import traceback
+		msg = "".join(traceback.format_exception(typ, val, tb))
+		print(f"UNHANDLED EXCEPTION:\n{msg}", file=sys.stderr)
+	sys.excepthook = excepthook
 
 	# ---------------------------------------------------------
 	# 0) MODEL LADEN (für DB-Setup)
