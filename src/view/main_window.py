@@ -765,10 +765,19 @@ class MainWindowMixin(QMainWindow):
 		layout.addWidget(QLabel("<b>Hex-Viewer</b>"))
 		layout.addSpacing(8)
 
+		# Toolbar Zeile 1: Datei + Schrift + Offset
 		toolbar = QHBoxLayout()
 		self.hex_file_label = QLabel("–")
 		self.hex_file_label.setStyleSheet("color: #aaa;")
 		toolbar.addWidget(self.hex_file_label, 1)
+
+		toolbar.addWidget(QLabel("Schrift:"))
+		self.hex_font_spin = QSpinBox()
+		self.hex_font_spin.setRange(6, 24)
+		self.hex_font_spin.setValue(9)
+		self.hex_font_spin.setFixedWidth(50)
+		self.hex_font_spin.valueChanged.connect(self._on_hex_font_size)
+		toolbar.addWidget(self.hex_font_spin)
 
 		self.hex_open_btn = QPushButton("Öffnen")
 		self.hex_open_btn.clicked.connect(self._on_hex_open)
@@ -776,7 +785,7 @@ class MainWindowMixin(QMainWindow):
 
 		self.hex_goto_input = QLineEdit()
 		self.hex_goto_input.setPlaceholderText("Offset (hex)")
-		self.hex_goto_input.setFixedWidth(120)
+		self.hex_goto_input.setFixedWidth(110)
 		toolbar.addWidget(self.hex_goto_input)
 
 		self.hex_goto_btn = QPushButton("Gehe zu")
@@ -785,8 +794,39 @@ class MainWindowMixin(QMainWindow):
 
 		layout.addLayout(toolbar)
 
+		# Toolbar Zeile 2: Suche
+		search_bar = QHBoxLayout()
+		search_bar.addWidget(QLabel("Suche:"))
+		self.hex_search_input = QLineEdit()
+		self.hex_search_input.setPlaceholderText("Hex (z.B. 00FF) / ASCII / Text")
+		self.hex_search_input.returnPressed.connect(self._on_hex_search)
+		search_bar.addWidget(self.hex_search_input, 1)
+		self.hex_search_mode = QComboBox()
+		self.hex_search_mode.addItem("Hex", "hex")
+		self.hex_search_mode.addItem("ASCII", "ascii")
+		self.hex_search_mode.addItem("Text", "text")
+		self.hex_search_mode.setFixedWidth(80)
+		search_bar.addWidget(self.hex_search_mode)
+		self.hex_search_btn = QPushButton("Suchen")
+		self.hex_search_btn.clicked.connect(self._on_hex_search)
+		search_bar.addWidget(self.hex_search_btn)
+		self.hex_search_prev = QPushButton("▲")
+		self.hex_search_prev.setFixedWidth(30)
+		self.hex_search_prev.clicked.connect(self._on_hex_search_prev)
+		search_bar.addWidget(self.hex_search_prev)
+		self.hex_search_next = QPushButton("▼")
+		self.hex_search_next.setFixedWidth(30)
+		self.hex_search_next.clicked.connect(self._on_hex_search_next)
+		search_bar.addWidget(self.hex_search_next)
+		self.hex_search_status = QLabel("")
+		self.hex_search_status.setStyleSheet("color: #888;")
+		search_bar.addWidget(self.hex_search_status)
+		search_bar.addStretch()
+		layout.addLayout(search_bar)
+
 		self.hex_viewer = HexViewWidget()
 		self.hex_viewer.setStyleSheet("border: 1px solid #333;")
+		self.hex_viewer.search_moved.connect(self._on_hex_search_moved)
 		layout.addWidget(self.hex_viewer, 1)
 
 		self.hex_status = QLabel("–")
@@ -806,6 +846,26 @@ class MainWindowMixin(QMainWindow):
 
 	def _on_hex_goto(self):
 		self.hex_viewer.goto_offset(self.hex_goto_input.text())
+
+	def _on_hex_font_size(self, size):
+		self.hex_viewer.set_font_size(size)
+
+	def _on_hex_search(self):
+		text = self.hex_search_input.text().strip()
+		mode = self.hex_search_mode.currentData()
+		self.hex_viewer.search(text, mode)
+
+	def _on_hex_search_next(self):
+		self.hex_viewer.search_next()
+
+	def _on_hex_search_prev(self):
+		self.hex_viewer.search_prev()
+
+	def _on_hex_search_moved(self, index, total):
+		if total > 0:
+			self.hex_search_status.setText(f"{index}/{total}")
+		else:
+			self.hex_search_status.setText("")
 
 	def set_hex_file(self, path):
 		self.hex_viewer.set_file(path)

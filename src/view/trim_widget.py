@@ -1,10 +1,11 @@
-import math
 from pathlib import Path
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 							 QPushButton, QCheckBox, QRadioButton, QButtonGroup,
 							 QGroupBox, QGridLayout, QStyle)
-from PyQt6.QtCore import Qt, pyqtSignal, QProcess, QByteArray, QTimer, QPointF
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPointF
 from PyQt6.QtGui import QPainter, QColor, QPen, QFont, QFontMetrics, QPixmap, QPolygonF
+
+from .video_source import VideoSource
 
 
 class TrimWidget(QWidget):
@@ -21,10 +22,13 @@ class TrimWidget(QWidget):
 		self._snap_to_keyframe = True
 		self._mode = "stream_copy"  # oder "ffv1"
 
+		self._video = VideoSource()
 		self._dragging = None  # "in" oder "out"
-		self._preview_start = None
-		self._preview_end = None
-		self._preview_procs = []
+		self._edit_mode = "start"  # "start" oder "end"
+		self._is_playing = False
+		self._play_speed = 1
+		self._play_timer = QTimer(self)
+		self._play_timer.timeout.connect(self._play_tick)
 
 		self._build_ui()
 		self.setMinimumHeight(260)
@@ -56,11 +60,11 @@ class TrimWidget(QWidget):
 		preview_col_start.setAlignment(Qt.AlignmentFlag.AlignCenter)
 		self._lbl_preview_title_start = QLabel("Start")
 		self._lbl_preview_title_start.setAlignment(Qt.AlignmentFlag.AlignCenter)
-		self._lbl_preview_title_start.setStyleSheet("color: #4FC3F7; font-size: 8pt;")
+		self._lbl_preview_title_start.setStyleSheet("color: #4FC3F7; font-weight: bold; font-size: 8pt;")
 		preview_col_start.addWidget(self._lbl_preview_title_start)
 		self._preview_start_label = QLabel()
 		self._preview_start_label.setFixedSize(768, 576)
-		self._preview_start_label.setStyleSheet("background: #111; border: 1px solid #4FC3F7;")
+		self._preview_start_label.setStyleSheet("background: #111; border: 2px solid #4FC3F7;")
 		preview_col_start.addWidget(self._preview_start_label, alignment=Qt.AlignmentFlag.AlignCenter)
 		preview_row.addLayout(preview_col_start)
 
@@ -70,7 +74,7 @@ class TrimWidget(QWidget):
 		preview_col_end.setAlignment(Qt.AlignmentFlag.AlignCenter)
 		self._lbl_preview_title_end = QLabel("Ende")
 		self._lbl_preview_title_end.setAlignment(Qt.AlignmentFlag.AlignCenter)
-		self._lbl_preview_title_end.setStyleSheet("color: #FF7043; font-size: 8pt;")
+		self._lbl_preview_title_end.setStyleSheet("color: #FF7043; font-weight: bold; font-size: 8pt;")
 		preview_col_end.addWidget(self._lbl_preview_title_end)
 		self._preview_end_label = QLabel()
 		self._preview_end_label.setFixedSize(768, 576)
@@ -112,11 +116,32 @@ class TrimWidget(QWidget):
 		# Navigations-Buttons
 		nav_layout = QHBoxLayout()
 		self._btn_prev_frame = QPushButton("◄ Vorheriges Bild")
-		self._btn_prev_frame.clicked.connect(lambda: self._nudge_start(-1))
+		self._btn_prev_frame.clicked.connect(lambda: self._nudge(-1))
 		nav_layout.addWidget(self._btn_prev_frame)
 		self._btn_next_frame = QPushButton("Nächstes Bild ►")
-		self._btn_next_frame.clicked.connect(lambda: self._nudge_start(1))
+		self._btn_next_frame.clicked.connect(lambda: self._nudge(1))
 		nav_layout.addWidget(self._btn_next_frame)
+
+		nav_layout.addSpacing(10)
+		self._btn_play_1x = QPushButton("▶ Play")
+		self._btn_play_1x.clicked.connect(lambda: self._start_play(1))
+		nav_layout.addWidget(self._btn_play_1x)
+		self._btn_play_2x = QPushButton("▶▶ 2x")
+		self._btn_play_2x.clicked.connect(lambda: self._start_play(2))
+		nav_layout.addWidget(self._btn_play_2x)
+		self._btn_play_4x = QPushButton("▶▶▶ 4x")
+		self._btn_play_4x.clicked.connect(lambda: self._start_play(4))
+		nav_layout.addWidget(self._btn_play_4x)
+
+		nav_layout.addSpacing(10)
+		self._edit_group = QButtonGroup(self)
+		self._rb_edit_start = QRadioButton("Start")
+		self._rb_edit_start.setChecked(True)
+		self._rb_edit_start.toggled.connect(lambda on: self._set_edit_mode("start") if on else None)
+		nav_layout.addWidget(self._rb_edit_start)
+		self._rb_edit_end = QRadioButton("Ende")
+		self._rb_edit_end.toggled.connect(lambda on: self._set_edit_mode("end") if on else None)
+		nav_layout.addWidget(self._rb_edit_end)
 		nav_layout.addSpacing(10)
 		self._btn_prev_kf = QPushButton("◄ Vorheriger K-Frame")
 		self._btn_prev_kf.clicked.connect(lambda: self._snap_to_nearest_kf(-1))
@@ -136,16 +161,16 @@ class TrimWidget(QWidget):
 		self._filepath = filepath
 		if not filepath or not Path(filepath).exists():
 			return
-		self._fps = self._detect_framerate(filepath)
-		self._total_frames = self._detect_total_frames(filepath)
-		self._keyframes = self._detect_keyframes(filepath)
+		self._video.open(filepath)
+		self._fps = self._video.fps
+		self._total_frames = self._video.total_frames
+		self._keyframes = self._video.get_keyframes()
 		self._start_frame = 0
 		self._end_frame = self._total_frames - 1 if self._total_frames > 0 else 0
 		self._update_info()
 		self._timeline_bar.set_data(self)
 		self._timeline_bar.update()
-		self._request_preview(self._start_frame, "start")
-		self._request_preview(self._end_frame, "end")
+		self._update_preview()
 
 	def set_mode(self, mode):
 		if mode == "stream_copy":
@@ -171,29 +196,100 @@ class TrimWidget(QWidget):
 	def _on_mode_changed(self):
 		self._mode = "ffv1" if self._rb_ffv1.isChecked() else "stream_copy"
 
+	def _set_edit_mode(self, mode):
+		self._edit_mode = mode
+		if mode == "start":
+			self._preview_start_label.setStyleSheet("background: #111; border: 2px solid #4FC3F7;")
+			self._preview_end_label.setStyleSheet("background: #111; border: 1px solid #FF7043;")
+		else:
+			self._preview_start_label.setStyleSheet("background: #111; border: 1px solid #4FC3F7;")
+			self._preview_end_label.setStyleSheet("background: #111; border: 2px solid #FF7043;")
+
 	def _on_bar_trim_changed(self, start, end):
 		self._start_frame = start
 		self._end_frame = end
 		self._update_info()
-		self._request_preview(start, "start")
-		self._request_preview(end, "end")
+		self._update_preview()
 		self.trim_changed.emit(start, end)
 
-	def _nudge_start(self, delta):
-		nf = max(0, min(self._total_frames - 1, self._start_frame + delta))
-		if nf != self._start_frame:
+	def _start_play(self, speed):
+		if self._is_playing:
+			if self._play_speed == speed:
+				self._stop_play()
+				return
+			self._play_speed = speed
+			self._update_play_buttons()
+			return
+		self._is_playing = True
+		self._play_speed = speed
+		self._update_play_buttons()
+		self._btn_prev_frame.setEnabled(False)
+		self._btn_next_frame.setEnabled(False)
+		self._btn_prev_kf.setEnabled(False)
+		self._btn_next_kf.setEnabled(False)
+		self._timeline_bar.setEnabled(False)
+		interval = max(16, int(1000 / self._fps))
+		self._play_timer.start(interval)
+
+	def _update_play_buttons(self):
+		s = self._play_speed
+		self._btn_play_1x.setText("■ Stop" if s == 1 else "▶ Play")
+		self._btn_play_2x.setText("■ Stop" if s == 2 else "▶▶ 2x")
+		self._btn_play_4x.setText("■ Stop" if s == 4 else "▶▶▶ 4x")
+		for btn in (self._btn_play_1x, self._btn_play_2x, self._btn_play_4x):
+			btn.setEnabled(True)
+
+	def _stop_play(self):
+		self._is_playing = False
+		self._play_timer.stop()
+		self._btn_play_1x.setText("▶ Play")
+		self._btn_play_2x.setText("▶▶ 2x")
+		self._btn_play_4x.setText("▶▶▶ 4x")
+		for btn in (self._btn_play_1x, self._btn_play_2x, self._btn_play_4x):
+			btn.setEnabled(True)
+		self._btn_prev_frame.setEnabled(True)
+		self._btn_next_frame.setEnabled(True)
+		self._btn_prev_kf.setEnabled(True)
+		self._btn_next_kf.setEnabled(True)
+		self._timeline_bar.setEnabled(True)
+
+	def _play_tick(self):
+		step = self._play_speed
+		if self._edit_mode == "start":
+			nf = min(self._end_frame - 1, self._start_frame + step)
 			self._on_bar_trim_changed(nf, self._end_frame)
-			self._timeline_bar.update()
+			if self._start_frame >= self._end_frame - 1:
+				self._stop_play()
+		else:
+			nf = max(self._start_frame + 1, self._end_frame - step)
+			self._on_bar_trim_changed(self._start_frame, nf)
+			if self._end_frame <= self._start_frame + 1:
+				self._stop_play()
+
+	def _nudge(self, delta):
+		if self._is_playing:
+			self._stop_play()
+		if self._edit_mode == "start":
+			nf = max(0, min(self._end_frame - 1, self._start_frame + delta))
+			if nf != self._start_frame:
+				self._on_bar_trim_changed(nf, self._end_frame)
+		else:
+			nf = max(self._start_frame + 1, min(self._total_frames - 1, self._end_frame + delta))
+			if nf != self._end_frame:
+				self._on_bar_trim_changed(self._start_frame, nf)
+		self._timeline_bar.update()
 
 	def _snap_to_nearest_kf(self, direction):
+		if self._is_playing:
+			self._stop_play()
 		if not self._keyframes:
 			return
-		ref = self._start_frame if direction < 0 else self._end_frame
+		ref = self._start_frame if self._edit_mode == "start" else self._end_frame
 		candidates = [k for k in self._keyframes if (k < ref if direction < 0 else k > ref)]
 		if not candidates:
 			return
 		target = max(candidates) if direction < 0 else min(candidates)
-		if direction < 0:
+		if self._edit_mode == "start":
 			self._on_bar_trim_changed(target, self._end_frame)
 		else:
 			self._on_bar_trim_changed(self._start_frame, target)
@@ -226,119 +322,19 @@ class TrimWidget(QWidget):
 			s += 1
 		return f"{h:02d}:{m:02d}:{s:02d}:{f:02d}"
 
-	def _detect_framerate(self, filepath):
-		try:
-			import subprocess
-			from ..model.base import BASE_DIR
-			r = subprocess.run(
-				[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
-				 "-select_streams", "v:0",
-				 "-show_entries", "stream=r_frame_rate",
-				 "-of", "csv=p=0", filepath],
-				capture_output=True, text=True, timeout=15
-			)
-			out = r.stdout.strip()
-			if out and "/" in out:
-				num, den = out.split("/")
-				return float(num) / float(den)
-			elif out:
-				return float(out)
-		except Exception:
-			pass
-		return 25.0
-
-	def _detect_total_frames(self, filepath):
-		try:
-			import subprocess
-			from ..model.base import BASE_DIR
-			r = subprocess.run(
-				[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
-				 "-select_streams", "v:0",
-				 "-show_entries", "stream=nb_frames",
-				 "-of", "csv=p=0", filepath],
-				capture_output=True, text=True, timeout=15
-			)
-			out = r.stdout.strip()
-			if out:
-				return int(out)
-		except Exception:
-			pass
-		# Fallback: Dauer * fps
-		try:
-			r = subprocess.run(
-				[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
-				 "-show_entries", "format=duration",
-				 "-of", "csv=p=0", filepath],
-				capture_output=True, text=True, timeout=15
-			)
-			dur = r.stdout.strip()
-			if dur:
-				return int(float(dur) * self._fps)
-		except Exception:
-			pass
-		return 0
-
-	def _detect_keyframes(self, filepath):
-		try:
-			import subprocess
-			from ..model.base import BASE_DIR
-			r = subprocess.run(
-				[str(BASE_DIR / "ffprobe.exe"), "-v", "error",
-				 "-select_streams", "v:0",
-				 "-show_frames", "-of", "csv=pict_type", filepath],
-				capture_output=True, text=True, timeout=120
-			)
-			types = [line.strip() for line in r.stdout.split("\n") if line.strip()]
-			return [i for i, pt in enumerate(types) if pt == "I"]
-		except Exception:
-			return []
-
-	def _request_preview(self, frame, target):
-		if not self._filepath or self._fps <= 0:
+	def _update_preview(self):
+		if not self._video.is_open() or self._total_frames <= 0:
 			return
-		# Alte Prozesse für dieses Target killen
-		self._preview_procs = [p for p in self._preview_procs if p.property("target") != target]
-		ts = frame / self._fps
-		from ..model.base import BASE_DIR
-		proc = QProcess()
-		proc.setProperty("target", target)
-		proc.setProperty("frame", frame)
-		cmd = [
-			str(BASE_DIR / "ffmpeg.exe"),
-			"-i", self._filepath,
-			"-ss", str(ts),
-			"-vframes", "1",
-			"-f", "image2pipe",
-			"-vcodec", "bmp", "-"
-		]
-		proc.readyReadStandardOutput.connect(lambda: self._on_preview_ready(proc, target))
-		proc.finished.connect(lambda: self._on_preview_finished(proc, target))
-		self._preview_procs.append(proc)
-		proc.start(cmd[0], cmd[1:])
-
-	def _on_preview_ready(self, proc, target):
-		if not proc.property("_buffer"):
-			proc.setProperty("_buffer", QByteArray())
-		buf = proc.property("_buffer")
-		buf.append(proc.readAllStandardOutput())
-		proc.setProperty("_buffer", buf)
-
-	def _on_preview_finished(self, proc, target):
-		buf = proc.property("_buffer") or QByteArray()
-		if buf.size() < 100:
-			if proc in self._preview_procs:
-				self._preview_procs.remove(proc)
-			return
-		pix = QPixmap()
-		if pix.loadFromData(buf.data(), "BMP"):
-			pix = pix.scaled(768, 576, Qt.AspectRatioMode.KeepAspectRatio,
-							 Qt.TransformationMode.SmoothTransformation)
-			if target == "start":
-				self._preview_start_label.setPixmap(pix)
-			else:
-				self._preview_end_label.setPixmap(pix)
-		if proc in self._preview_procs:
-			self._preview_procs.remove(proc)
+		pix_s = self._video.get_frame(self._start_frame)
+		if pix_s:
+			self._preview_start_label.setPixmap(
+				pix_s.scaled(768, 576, Qt.AspectRatioMode.KeepAspectRatio,
+							 Qt.TransformationMode.SmoothTransformation))
+		pix_e = self._video.get_frame(self._end_frame)
+		if pix_e:
+			self._preview_end_label.setPixmap(
+				pix_e.scaled(768, 576, Qt.AspectRatioMode.KeepAspectRatio,
+							 Qt.TransformationMode.SmoothTransformation))
 
 	def set_start_end_from_tc(self, start_tc, end_tc):
 		sf = self._tc_to_frames(start_tc)
@@ -347,6 +343,7 @@ class TrimWidget(QWidget):
 			self._start_frame = sf
 			self._end_frame = ef
 			self._update_info()
+			self._update_preview()
 			self._timeline_bar.update()
 
 	def _tc_to_frames(self, tc):
@@ -462,8 +459,6 @@ class _TimelineBar(QWidget):
 		if self._dragging:
 			self._dragging = None
 			self.trim_changed.emit(self._owner._start_frame, self._owner._end_frame)
-			self._owner._request_preview(self._owner._start_frame, "start")
-			self._owner._request_preview(self._owner._end_frame, "end")
 
 	def _x_to_frame(self, x):
 		w = self.width() - self._margin * 2
