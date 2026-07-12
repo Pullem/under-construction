@@ -10,10 +10,8 @@ from .base import BASE_DIR
 os.environ["OPENCV_LOG_LEVEL"] = "FATAL"
 os.environ["OPENCV_VIDEOIO_DEBUG"] = "0"
 import cv2
-try:
+if hasattr(cv2, "setLogLevel"):
 	cv2.setLogLevel(0)
-except AttributeError:
-	pass
 
 
 class MediaMixin:

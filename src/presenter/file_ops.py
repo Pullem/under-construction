@@ -37,7 +37,8 @@ class FileOpsMixin:
 					conn.close()
 					if row:
 						self.view.set_ffmpeg_file(row['file_path'])
-				except Exception:
+				except Exception as e:
+					print(f"Fehler in set_ffmpeg_file: {e}")
 					conn.close()
 
 		target_tab = self.last_tab_focus

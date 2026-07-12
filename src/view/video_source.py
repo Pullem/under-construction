@@ -74,15 +74,20 @@ class VideoSource:
 			else:
 				break
 		seek_sec = kf / self.fps
-		tb = float(self._video_stream.time_base)
+		tb = float(self._video_stream.time_base) if self._video_stream.time_base else 1/90000
 		self._container.seek(int(seek_sec / tb), stream=self._video_stream)
 
 	def _frame_to_pixmap(self, frame):
-		arr = frame.to_ndarray(format="rgb24")
-		h, w = arr.shape[:2]
-		img = QImage(arr.data, w, h, arr.strides[0], QImage.Format.Format_RGB888)
-		self._last_arr = arr
-		return QPixmap.fromImage(img)
+		try:
+			arr = frame.to_ndarray(format="rgb24")
+			if arr is None:
+				return None
+			h, w, *_ = arr.shape
+			img = QImage(arr.tobytes(), w, h, arr.strides[0], QImage.Format.Format_RGB888)
+			return QPixmap.fromImage(img)
+		except Exception as e:
+			print(f"Frame-Konvertierung fehlgeschlagen: {e}")
+			return None
 
 	def _add_cache(self, fn, pix):
 		self._cache[fn] = pix
