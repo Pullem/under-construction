@@ -51,7 +51,9 @@ def _extract_timestamp(metadata, exif):
 					"datetimeoriginal", "DateTimeOriginal",
 					"EXIF:datetimeoriginal", "EXIF:DateTimeOriginal",
 					"timestamp", "Timestamp",
-					"MakerNotes:timestamp", "MakerNotes:Timestamp"):
+					"MakerNotes:timestamp", "MakerNotes:Timestamp",
+					"File:FileCreateDate",
+					"File:FileModifyDate"):
 			ts = _parse(exif.get(key))
 			if ts:
 				return ts
@@ -61,7 +63,8 @@ def _extract_timestamp(metadata, exif):
 			track = metadata.get(track_name)
 			if isinstance(track, dict):
 				for key in ("file_creation_date", "file_creation_date_local",
-							"creation_date", "TrackCreateDate", "MediaCreateDate"):
+							"creation_date", "TrackCreateDate", "MediaCreateDate",
+							"file_modified_date", "file_modified_date_local"):
 					ts = _parse(track.get(key))
 					if ts:
 						return ts
@@ -69,7 +72,8 @@ def _extract_timestamp(metadata, exif):
 	if isinstance(exif, dict):
 		for key in ("CreateDate", "com.apple.quicktime.creationdate",
 					"Creation Date", "File Modification Date/Time",
-					"TrackCreateDate", "QuickTime:TrackCreateDate"):
+					"TrackCreateDate", "QuickTime:TrackCreateDate",
+					"File:FileAccessDate"):
 			ts = _parse(exif.get(key))
 			if ts:
 				return ts
