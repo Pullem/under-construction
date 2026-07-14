@@ -117,12 +117,21 @@ class MainWindowMixin(QMainWindow):
 
 		# Navigation verknüpfen
 		self.nav_bar.currentChanged.connect(self.content_stack.setCurrentIndex)
+		self.content_stack.currentChanged.connect(self._update_plugin_tab_labels)
 
 		self._refresh_timezone()
 
 		main_layout.addWidget(self.nav_bar)
 		main_layout.addWidget(self.content_stack, 1)
 		main_layout.addWidget(self.plugin_bar)
+
+		# Initialen Label-Status setzen
+		self._update_plugin_tab_labels(0)
+
+	def _update_plugin_tab_labels(self, index):
+		prefix = "V" if index == 3 else "B" if index == 4 else ""
+		for i in range(6):
+			self.plugin_bar.setTabText(i, f"Plugin {prefix}{i + 1}")
 
 	def _build_case_tab(self):
 		widget = QWidget()
@@ -283,10 +292,10 @@ class MainWindowMixin(QMainWindow):
 		file_layout.addWidget(btn_browse)
 		layout.addLayout(file_layout)
 
-		# Preset-Buttons
-		layout.addWidget(QLabel("Presets:"))
-		preset_grid = QGridLayout()
+		# Preset-Buttons (nur Videos)
 		if is_video:
+			layout.addWidget(QLabel("Presets:"))
+			preset_grid = QGridLayout()
 			presets = [
 				(0, 0, "Trim", self._ffmpeg_preset_trim),
 				(0, 1, "Frames", self._ffmpeg_preset_frames),
@@ -297,17 +306,11 @@ class MainWindowMixin(QMainWindow):
 				(1, 2, "Custom", self._ffmpeg_preset_custom),
 				(1, 3, "Bitstream", self._ffmpeg_preset_bitstream),
 			]
-		else:
-			presets = [
-				(0, 0, "Container", self._ffmpeg_preset_container),
-				(0, 1, "Hash", self._ffmpeg_preset_hash),
-				(0, 2, "Custom", self._ffmpeg_preset_custom),
-			]
-		for row, col, title, cb in presets:
-			btn = QPushButton(title)
-			btn.clicked.connect(cb)
-			preset_grid.addWidget(btn, row, col)
-		layout.addLayout(preset_grid)
+			for row, col, title, cb in presets:
+				btn = QPushButton(title)
+				btn.clicked.connect(cb)
+				preset_grid.addWidget(btn, row, col)
+			layout.addLayout(preset_grid)
 
 		# Parameter (nur Videos)
 		if is_video:
@@ -346,24 +349,6 @@ class MainWindowMixin(QMainWindow):
 
 			layout.addWidget(params_group)
 			setattr(self, f"{prefix}_params_group", params_group)
-
-		# Optionen (nur Bilder: Format+Filter ohne Start/Ende)
-		if not is_video:
-			opt_layout = QHBoxLayout()
-			opt_layout.addWidget(QLabel("Format:"))
-			fmt_combo = QComboBox()
-			fmt_combo.addItem("FFV1 (lossless)", "ffv1")
-			fmt_combo.addItem("H.264 CRF 18", "h264_crf18")
-			fmt_combo.addItem("H.264 CRF 10", "h264_crf10")
-			setattr(self, f"{prefix}_format", fmt_combo)
-			opt_layout.addWidget(fmt_combo)
-
-			opt_layout.addWidget(QLabel("Filter:"))
-			filter_edit = QLineEdit()
-			filter_edit.setPlaceholderText("z.B. scale=1280:720,eq=brightness=0.2")
-			setattr(self, f"{prefix}_filter", filter_edit)
-			opt_layout.addWidget(filter_edit, 1)
-			layout.addLayout(opt_layout)
 
 		# Lossless Trim Widget (nur Videos, initial versteckt)
 		if is_video:
@@ -439,60 +424,75 @@ class MainWindowMixin(QMainWindow):
 		setattr(self, f"{prefix}_result", analysis_result)
 		left_layout.addWidget(analysis_result, 3)
 
-		# ELA-Vorschau (nur Bilder-Tab)
-		if not is_video:
-			ela_preview = QLabel()
-			ela_preview.setFixedHeight(200)
-			ela_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-			ela_preview.setStyleSheet("border: 1px solid #444; background: #111; color: #666;")
-			ela_preview.setText("ELA-Ergebnis erscheint hier")
-			ela_preview.setVisible(False)
-			setattr(self, f"{prefix}_ela_preview", ela_preview)
-			left_layout.addWidget(ela_preview)
-
 		splitter.addWidget(left_widget)
 
-		# Rechte Seite: Run/Abort + Log + Progress
-		right_widget = QWidget()
-		right_layout = QVBoxLayout(right_widget)
-		right_layout.setContentsMargins(4, 0, 0, 0)
+		# Rechte Seite: ffmpeg-Controls (Videos) oder ELA-Vorschau (Bilder)
+		if is_video:
+			right_widget = QWidget()
+			right_layout = QVBoxLayout(right_widget)
+			right_layout.setContentsMargins(4, 0, 0, 0)
 
-		run_layout = QHBoxLayout()
-		btn_run = QPushButton("▶ Ausführen")
-		btn_run.setMinimumHeight(36)
-		btn_run.clicked.connect(self._on_ffmpeg_run)
-		setattr(self, f"{prefix}_btn_run", btn_run)
-		run_layout.addWidget(btn_run)
+			run_layout = QHBoxLayout()
+			btn_run = QPushButton("▶ Ausführen")
+			btn_run.setMinimumHeight(36)
+			btn_run.clicked.connect(self._on_ffmpeg_run)
+			setattr(self, f"{prefix}_btn_run", btn_run)
+			run_layout.addWidget(btn_run)
 
-		btn_abort = QPushButton("✕ Abbrechen")
-		btn_abort.setMinimumHeight(36)
-		btn_abort.setEnabled(False)
-		btn_abort.clicked.connect(self._on_ffmpeg_abort)
-		btn_abort.setStyleSheet("color: #ff6666;")
-		setattr(self, f"{prefix}_btn_abort", btn_abort)
-		run_layout.addWidget(btn_abort)
+			btn_abort = QPushButton("✕ Abbrechen")
+			btn_abort.setMinimumHeight(36)
+			btn_abort.setEnabled(False)
+			btn_abort.clicked.connect(self._on_ffmpeg_abort)
+			btn_abort.setStyleSheet("color: #ff6666;")
+			setattr(self, f"{prefix}_btn_abort", btn_abort)
+			run_layout.addWidget(btn_abort)
 
-		run_layout.addStretch()
-		out_label = QLabel("")
-		setattr(self, f"{prefix}_out_label", out_label)
-		run_layout.addWidget(out_label)
-		right_layout.addLayout(run_layout)
+			run_layout.addStretch()
+			out_label = QLabel("")
+			setattr(self, f"{prefix}_out_label", out_label)
+			run_layout.addWidget(out_label)
+			right_layout.addLayout(run_layout)
 
-		ffmpeg_log = QPlainTextEdit()
-		ffmpeg_log.setReadOnly(True)
-		ffmpeg_log.setMaximumBlockCount(1000)
-		ffmpeg_log.setStyleSheet("background: #111; color: #0f0; font-family: Consolas; font-size: 9pt;")
-		setattr(self, f"{prefix}_log", ffmpeg_log)
-		right_layout.addWidget(ffmpeg_log, 1)
+			ffmpeg_log = QPlainTextEdit()
+			ffmpeg_log.setReadOnly(True)
+			ffmpeg_log.setMaximumBlockCount(1000)
+			ffmpeg_log.setStyleSheet("background: #111; color: #0f0; font-family: Consolas; font-size: 9pt;")
+			setattr(self, f"{prefix}_log", ffmpeg_log)
+			right_layout.addWidget(ffmpeg_log, 1)
 
-		progress = QProgressBar()
-		progress.setTextVisible(True)
-		setattr(self, f"{prefix}_progress", progress)
-		right_layout.addWidget(progress)
+			progress = QProgressBar()
+			progress.setTextVisible(True)
+			setattr(self, f"{prefix}_progress", progress)
+			right_layout.addWidget(progress)
 
-		splitter.addWidget(right_widget)
-		splitter.setStretchFactor(0, 1)
-		splitter.setStretchFactor(1, 2)
+			splitter.addWidget(right_widget)
+			splitter.setStretchFactor(0, 1)
+			splitter.setStretchFactor(1, 2)
+		else:
+			right_widget = QWidget()
+			right_layout = QVBoxLayout(right_widget)
+			right_layout.setContentsMargins(4, 0, 0, 0)
+
+			error_map_view = QLabel()
+			error_map_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+			error_map_view.setStyleSheet("border: 1px solid #444; background: #111; color: #666;")
+			error_map_view.setText("ELA-Error-Map")
+			error_map_view.setVisible(False)
+			setattr(self, f"{prefix}_error_map_view", error_map_view)
+			right_layout.addWidget(error_map_view, 1)
+
+			hist_view = QLabel()
+			hist_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+			hist_view.setStyleSheet("border: 1px solid #444; background: #111; color: #666;")
+			hist_view.setText("ELA-Histogram")
+			hist_view.setVisible(False)
+			setattr(self, f"{prefix}_histogram_view", hist_view)
+			right_layout.addWidget(hist_view, 1)
+
+			splitter.addWidget(right_widget)
+			splitter.setStretchFactor(0, 1)
+			splitter.setStretchFactor(1, 2)
+
 		layout.addWidget(splitter, 1)
 
 		self.nav_bar.addTab(name)
@@ -1061,7 +1061,7 @@ class MainWindowMixin(QMainWindow):
 		name = "Sommerzeit UTC+2 (MESZ)" if offset == 2 else "Winterzeit UTC+1 (MEZ)"
 		if hasattr(self, 'lbl_tz_info'):
 			self.lbl_tz_info.setText(name)
-		for combo_name in ('video_utc_combo', 'bild_utc_combo', 'cbo_offset'):
+		for combo_name in ('video_utc_combo', 'cbo_offset'):
 			combo = getattr(self, combo_name, None)
 			if combo:
 				idx = combo.findData(offset)

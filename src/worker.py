@@ -197,7 +197,9 @@ class ElaWorker(QRunnable):
 			im = ax.imshow(diff, cmap="hot", vmin=0, vmax=vmax)
 			ax.set_title("ELA Error Distribution", color="#ccc", fontsize=12)
 			ax.axis("off")
-			fig.colorbar(im, ax=ax, label="Error-Level")
+			cbar = fig.colorbar(im, ax=ax, label="Error-Level")
+			cbar.ax.tick_params(colors="#ccc")
+			cbar.set_label("Error-Level", color="#ccc")
 			fig.savefig(str(errormap_path), dpi=150, bbox_inches="tight")
 			plt.close(fig)
 

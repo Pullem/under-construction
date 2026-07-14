@@ -413,17 +413,23 @@ class FfmpegOpsMixin:
 		result_widget = getattr(self.view, f'{p}_result', None)
 		if result_widget:
 			result_widget.setPlainText(text_result)
-		# Error-Map als Vorschaubild anzeigen
-		preview = getattr(self.view, f'{p}_ela_preview', None)
-		if preview and os.path.exists(error_map_path):
-			from PyQt6.QtGui import QPixmap
-			pixmap = QPixmap(error_map_path)
-			if not pixmap.isNull():
-				preview.setPixmap(pixmap.scaled(
-					preview.width(), preview.height(),
-					Qt.AspectRatioMode.KeepAspectRatio,
-					Qt.TransformationMode.SmoothTransformation))
-				preview.setVisible(True)
+		# Error-Map auf der rechten Seite anzeigen
+		self._set_ela_image(p, f'{p}_error_map_view', error_map_path)
+		# Histogram auf der rechten Seite anzeigen
+		self._set_ela_image(p, f'{p}_histogram_view', hist_path)
+
+	def _set_ela_image(self, prefix, attr, path):
+		label = getattr(self.view, attr, None)
+		if label is None or not os.path.exists(path):
+			return
+		from PyQt6.QtGui import QPixmap
+		pixmap = QPixmap(path)
+		if not pixmap.isNull():
+			label.setPixmap(pixmap.scaled(
+				label.width(), label.height(),
+				Qt.AspectRatioMode.KeepAspectRatio,
+				Qt.TransformationMode.SmoothTransformation))
+			label.setVisible(True)
 
 	def _on_ela_error(self, mode, error_msg):
 		self._ffmpeg_log_probe(f"ELA-Fehler: {error_msg}")
