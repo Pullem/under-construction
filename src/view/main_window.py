@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 							 QStackedWidget, QMessageBox, QStyle, QStyleOptionTab,
 							 QDateEdit, QTimeEdit, QCheckBox, QComboBox, QSlider,
 							 QPlainTextEdit, QProgressBar, QGridLayout, QFileDialog,
-							 QSpinBox)
+							 QSpinBox, QSplitter)
 from PyQt6.QtCore import pyqtSignal, Qt, QSize, QDate, QTime, QDateTime, QProcess
 from PyQt6.QtGui import QPixmap, QPainter, QColor
 
@@ -65,9 +65,9 @@ class MainWindowMixin(QMainWindow):
 	save_settings_requested = pyqtSignal(str)
 	update_db_password_requested = pyqtSignal(str)
 	open_timeline_requested = pyqtSignal()
-	ffmpeg_run_requested = pyqtSignal(str, str, str)
+	ffmpeg_run_requested = pyqtSignal(str, str, str, str)
 	ffmpeg_abort_requested = pyqtSignal()
-	ffprobe_analyse_requested = pyqtSignal(str, str)
+	ffprobe_analyse_requested = pyqtSignal(str, str, str)
 	ffmpeg_lossless_trim_requested = pyqtSignal(str, int, int, str)
 
 	def __init__(self, **kwargs):
@@ -104,8 +104,8 @@ class MainWindowMixin(QMainWindow):
 		self._build_case_tab()
 		self._build_import_tab()
 		self._build_metadata_tab()
-		self._build_ffprobe_tab()
-		self._build_ffmpeg_tab()
+		self._build_videos_tab()
+		self._build_bilder_tab()
 		self._build_hex_tab()
 		self._build_analysis_tab()
 		self._build_placeholder_tab("Export")
@@ -255,246 +255,320 @@ class MainWindowMixin(QMainWindow):
 		self.nav_bar.addTab("Metadaten")
 		self.content_stack.addWidget(widget)
 
-	def _build_ffprobe_tab(self):
+	def _build_media_tab(self, name, prefix, is_video):
+		"""Build a combined analysis + processing tab.
+
+		Args:
+			name: Display name ("Videos" or "Bilder")
+			prefix: Widget name prefix ("video" or "bild")
+			is_video: True for full video features, False for image-only
+		"""
 		widget = QWidget()
 		layout = QVBoxLayout(widget)
 
-		layout.addWidget(QLabel("<b>ffprobe – Analysen</b>"))
+		layout.addWidget(QLabel(f"<b>{name}</b>"))
 		layout.addSpacing(8)
 
-		toolbar = QHBoxLayout()
-		btn_streams = QPushButton("Stream-Übersicht")
-		btn_streams.clicked.connect(lambda: self._on_ffprobe_analyse("streams"))
-		toolbar.addWidget(btn_streams)
-
-		btn_pts = QPushButton("PTS/DTS-Check")
-		btn_pts.clicked.connect(lambda: self._on_ffprobe_analyse("pts_dts"))
-		toolbar.addWidget(btn_pts)
-
-		btn_frames = QPushButton("Frame-Verteilung")
-		btn_frames.clicked.connect(lambda: self._on_ffprobe_analyse("frame_dist"))
-		toolbar.addWidget(btn_frames)
-
-		btn_freeze = QPushButton("Freeze-Detect")
-		btn_freeze.clicked.connect(lambda: self._on_ffprobe_analyse("freeze"))
-		toolbar.addWidget(btn_freeze)
-
-		btn_black = QPushButton("Black-Detect")
-		btn_black.clicked.connect(lambda: self._on_ffprobe_analyse("blackdetect"))
-		toolbar.addWidget(btn_black)
-
-		btn_scene = QPushButton("Scene-Detect")
-		btn_scene.clicked.connect(lambda: self._on_ffprobe_analyse("scenedetect"))
-		toolbar.addWidget(btn_scene)
-
-		btn_silence = QPushButton("Silence-Detect")
-		btn_silence.clicked.connect(lambda: self._on_ffprobe_analyse("silencedetect"))
-		toolbar.addWidget(btn_silence)
-
-		btn_bitrate = QPushButton("Bitrate-Check")
-		btn_bitrate.clicked.connect(lambda: self._on_ffprobe_analyse("bitrate"))
-		toolbar.addWidget(btn_bitrate)
-
-		btn_quick = QPushButton("Quick-Check")
-		btn_quick.setStyleSheet("background-color: #2a6d2a; color: white; font-weight: bold;")
-		btn_quick.clicked.connect(lambda: self._on_ffprobe_analyse("quickcheck"))
-		toolbar.addWidget(btn_quick)
-
-		self.ffprobe_file_label = QLabel("–")
-		self.ffprobe_file_label.setStyleSheet("color: #aaa;")
-		toolbar.addWidget(self.ffprobe_file_label, 1)
-		layout.addLayout(toolbar)
-
-		self.ffprobe_result = QPlainTextEdit()
-		self.ffprobe_result.setReadOnly(True)
-		self.ffprobe_result.setStyleSheet("background: #111; color: #0f0; font-family: Consolas; font-size: 9pt;")
-		layout.addWidget(self.ffprobe_result, 1)
-
-		self.nav_bar.addTab("ffprobe")
-		self.content_stack.addWidget(widget)
-
-	def _build_ffmpeg_tab(self):
-		widget = QWidget()
-		layout = QVBoxLayout(widget)
-
-		layout.addWidget(QLabel("<b>ffmpeg</b>"))
-		layout.addSpacing(8)
-
-		# Dateiauswahl
+		# Dateiauswahl (beide Tabs)
 		file_layout = QHBoxLayout()
 		file_layout.addWidget(QLabel("Datei:"))
-		self.ffmpeg_file_label = QLabel("–")
-		self.ffmpeg_file_label.setStyleSheet("color: #aaa;")
-		file_layout.addWidget(self.ffmpeg_file_label, 1)
-		self.ffmpeg_input_path = ""  # wird vom Presenter gesetzt
-		self.ffmpeg_btn_browse = QPushButton("Durchsuchen")
-		self.ffmpeg_btn_browse.clicked.connect(self._on_ffmpeg_browse)
-		file_layout.addWidget(self.ffmpeg_btn_browse)
+		file_label = QLabel("–")
+		file_label.setStyleSheet("color: #aaa;")
+		setattr(self, f"{prefix}_file_label", file_label)
+		file_layout.addWidget(file_label, 1)
+		setattr(self, f"{prefix}_input_path", "")
+		btn_browse = QPushButton("Durchsuchen")
+		btn_browse.clicked.connect(self._on_ffmpeg_browse)
+		setattr(self, f"{prefix}_btn_browse", btn_browse)
+		file_layout.addWidget(btn_browse)
 		layout.addLayout(file_layout)
 
 		# Preset-Buttons
 		layout.addWidget(QLabel("Presets:"))
 		preset_grid = QGridLayout()
-		presets = [
-			(0, 0, "Trim", self._ffmpeg_preset_trim),
-			(0, 1, "Frames", self._ffmpeg_preset_frames),
-			(0, 2, "Audio", self._ffmpeg_preset_audio),
-			(0, 3, "Timecode", self._ffmpeg_preset_timecode),
-			(1, 0, "Container", self._ffmpeg_preset_container),
-			(1, 1, "Hash", self._ffmpeg_preset_hash),
-			(1, 2, "Custom", self._ffmpeg_preset_custom),
-			(1, 3, "Bitstream", self._ffmpeg_preset_bitstream),
-		]
+		if is_video:
+			presets = [
+				(0, 0, "Trim", self._ffmpeg_preset_trim),
+				(0, 1, "Frames", self._ffmpeg_preset_frames),
+				(0, 2, "Audio", self._ffmpeg_preset_audio),
+				(0, 3, "Timecode", self._ffmpeg_preset_timecode),
+				(1, 0, "Container", self._ffmpeg_preset_container),
+				(1, 1, "Hash", self._ffmpeg_preset_hash),
+				(1, 2, "Custom", self._ffmpeg_preset_custom),
+				(1, 3, "Bitstream", self._ffmpeg_preset_bitstream),
+			]
+		else:
+			presets = [
+				(0, 0, "Container", self._ffmpeg_preset_container),
+				(0, 1, "Hash", self._ffmpeg_preset_hash),
+				(0, 2, "Custom", self._ffmpeg_preset_custom),
+			]
 		for row, col, title, cb in presets:
 			btn = QPushButton(title)
 			btn.clicked.connect(cb)
 			preset_grid.addWidget(btn, row, col)
 		layout.addLayout(preset_grid)
 
-		# Parameter
-		self.ffmpeg_params_group = QWidget()
-		self.ffmpeg_params_group.setStyleSheet("QWidget#ffmpeg_params { border: 1px solid #444; padding: 6px; }")
-		self.ffmpeg_params_group.setObjectName("ffmpeg_params")
-		param_layout = QHBoxLayout(self.ffmpeg_params_group)
+		# Parameter (nur Videos)
+		if is_video:
+			params_group = QWidget()
+			params_group.setStyleSheet("QWidget#ffmpeg_params { border: 1px solid #444; padding: 6px; }")
+			params_group.setObjectName("ffmpeg_params")
+			param_layout = QHBoxLayout(params_group)
 
-		param_layout.addWidget(QLabel("Start:"))
-		self.ffmpeg_start = QTimeEdit(QTime(0, 0))
-		self.ffmpeg_start.setDisplayFormat("HH:mm:ss")
-		param_layout.addWidget(self.ffmpeg_start)
+			param_layout.addWidget(QLabel("Start:"))
+			start = QTimeEdit(QTime(0, 0))
+			start.setDisplayFormat("HH:mm:ss")
+			setattr(self, f"{prefix}_start", start)
+			param_layout.addWidget(start)
 
-		param_layout.addWidget(QLabel("Ende:"))
-		self.ffmpeg_end = QTimeEdit(QTime(0, 0))
-		self.ffmpeg_end.setDisplayFormat("HH:mm:ss")
-		self.ffmpeg_end.setSpecialValueText("–")
-		self.ffmpeg_end.clear()
-		param_layout.addWidget(self.ffmpeg_end)
+			param_layout.addWidget(QLabel("Ende:"))
+			end = QTimeEdit(QTime(0, 0))
+			end.setDisplayFormat("HH:mm:ss")
+			end.setSpecialValueText("–")
+			end.clear()
+			setattr(self, f"{prefix}_end", end)
+			param_layout.addWidget(end)
 
-		param_layout.addWidget(QLabel("Format:"))
-		self.ffmpeg_format = QComboBox()
-		self.ffmpeg_format.addItem("FFV1 (lossless)", "ffv1")
-		self.ffmpeg_format.addItem("H.264 CRF 18", "h264_crf18")
-		self.ffmpeg_format.addItem("H.264 CRF 10", "h264_crf10")
-		param_layout.addWidget(self.ffmpeg_format)
+			param_layout.addWidget(QLabel("Format:"))
+			fmt_combo = QComboBox()
+			fmt_combo.addItem("FFV1 (lossless)", "ffv1")
+			fmt_combo.addItem("H.264 CRF 18", "h264_crf18")
+			fmt_combo.addItem("H.264 CRF 10", "h264_crf10")
+			setattr(self, f"{prefix}_format", fmt_combo)
+			param_layout.addWidget(fmt_combo)
 
-		param_layout.addWidget(QLabel("Filter:"))
-		self.ffmpeg_filter = QLineEdit()
-		self.ffmpeg_filter.setPlaceholderText("z.B. scale=1280:720,eq=brightness=0.2")
-		param_layout.addWidget(self.ffmpeg_filter, 1)
+			param_layout.addWidget(QLabel("Filter:"))
+			filter_edit = QLineEdit()
+			filter_edit.setPlaceholderText("z.B. scale=1280:720,eq=brightness=0.2")
+			setattr(self, f"{prefix}_filter", filter_edit)
+			param_layout.addWidget(filter_edit, 1)
 
-		layout.addWidget(self.ffmpeg_params_group)
+			layout.addWidget(params_group)
+			setattr(self, f"{prefix}_params_group", params_group)
 
-		# Lossless Trim Widget (initially hidden)
-		self.trim_widget = TrimWidget()
-		self.trim_widget.setVisible(False)
-		layout.addWidget(self.trim_widget)
+		# Optionen (nur Bilder: Format+Filter ohne Start/Ende)
+		if not is_video:
+			opt_layout = QHBoxLayout()
+			opt_layout.addWidget(QLabel("Format:"))
+			fmt_combo = QComboBox()
+			fmt_combo.addItem("FFV1 (lossless)", "ffv1")
+			fmt_combo.addItem("H.264 CRF 18", "h264_crf18")
+			fmt_combo.addItem("H.264 CRF 10", "h264_crf10")
+			setattr(self, f"{prefix}_format", fmt_combo)
+			opt_layout.addWidget(fmt_combo)
 
-		# Encoded date / time info + UTC-Offset
-		date_layout = QHBoxLayout()
-		date_layout.addWidget(QLabel("encoded:"))
-		self.ffmpeg_encoded_label = QLabel("–")
-		self.ffmpeg_encoded_label.setStyleSheet("color: #888;")
-		date_layout.addWidget(self.ffmpeg_encoded_label)
-		self.ffmpeg_utc_combo = QComboBox()
-		self.ffmpeg_utc_combo.addItem("UTC+1", 1)
-		self.ffmpeg_utc_combo.addItem("UTC+2", 2)
-		date_layout.addWidget(self.ffmpeg_utc_combo)
-		date_layout.addSpacing(20)
-		date_layout.addWidget(QLabel("TC-Pos:"))
-		self.ffmpeg_tc_pos = QComboBox()
-		self.ffmpeg_tc_pos.addItem("oben", "10")
-		self.ffmpeg_tc_pos.addItem("unten", "main_h-text_h-10")
-		date_layout.addWidget(self.ffmpeg_tc_pos)
-		date_layout.addStretch()
-		layout.addLayout(date_layout)
+			opt_layout.addWidget(QLabel("Filter:"))
+			filter_edit = QLineEdit()
+			filter_edit.setPlaceholderText("z.B. scale=1280:720,eq=brightness=0.2")
+			setattr(self, f"{prefix}_filter", filter_edit)
+			opt_layout.addWidget(filter_edit, 1)
+			layout.addLayout(opt_layout)
 
-		# Ausführen / Abbrechen
+		# Lossless Trim Widget (nur Videos, initial versteckt)
+		if is_video:
+			trim_widget = TrimWidget()
+			trim_widget.setVisible(False)
+			setattr(self, f"{prefix}_trim_widget", trim_widget)
+			layout.addWidget(trim_widget)
+
+		# Encoded date / time info + UTC-Offset (nur Videos)
+		if is_video:
+			date_layout = QHBoxLayout()
+			date_layout.addWidget(QLabel("encoded:"))
+			encoded_label = QLabel("–")
+			encoded_label.setStyleSheet("color: #888;")
+			setattr(self, f"{prefix}_encoded_label", encoded_label)
+			date_layout.addWidget(encoded_label)
+			utc_combo = QComboBox()
+			utc_combo.addItem("UTC+1", 1)
+			utc_combo.addItem("UTC+2", 2)
+			setattr(self, f"{prefix}_utc_combo", utc_combo)
+			date_layout.addWidget(utc_combo)
+			date_layout.addSpacing(20)
+			date_layout.addWidget(QLabel("TC-Pos:"))
+			tc_pos = QComboBox()
+			tc_pos.addItem("oben", "10")
+			tc_pos.addItem("unten", "main_h-text_h-10")
+			setattr(self, f"{prefix}_tc_pos", tc_pos)
+			date_layout.addWidget(tc_pos)
+			date_layout.addStretch()
+			layout.addLayout(date_layout)
+
+		# ffprobe-Analyse-Buttons + Ergebnis (links im Splitter)
+		splitter = QSplitter(Qt.Orientation.Horizontal)
+
+		left_widget = QWidget()
+		left_layout = QVBoxLayout(left_widget)
+		left_layout.setContentsMargins(0, 0, 4, 0)
+		left_layout.addWidget(QLabel("<b>Analysen</b>"))
+
+		if is_video:
+			analyses = [
+				("streams", "Stream-Übersicht"),
+				("pts_dts", "PTS/DTS-Check"),
+				("frame_dist", "Frame-Verteilung"),
+				("freeze", "Freeze-Detect"),
+				("blackdetect", "Black-Detect"),
+				("scenedetect", "Scene-Detect"),
+				("silencedetect", "Silence-Detect"),
+				("bitrate", "Bitrate-Check"),
+				("quickcheck", "Quick-Check"),
+			]
+		else:
+			analyses = [
+				("streams", "Stream-Übersicht"),
+				("blackdetect", "Black-Detect"),
+				("quickcheck", "Quick-Check"),
+			]
+
+		analysis_toolbar = QHBoxLayout()
+		for mode, title in analyses:
+			btn = QPushButton(title)
+			if mode == "quickcheck":
+				btn.setStyleSheet("background-color: #2a6d2a; color: white; font-weight: bold;")
+			btn.clicked.connect(lambda checked, m=mode: self._on_ffprobe_analyse(m))
+			setattr(self, f"{prefix}_btn_{mode}", btn)
+			analysis_toolbar.addWidget(btn)
+		left_layout.addLayout(analysis_toolbar)
+
+		analysis_result = QPlainTextEdit()
+		analysis_result.setReadOnly(True)
+		analysis_result.setStyleSheet("background: #111; color: #0f0; font-family: Consolas; font-size: 9pt;")
+		setattr(self, f"{prefix}_result", analysis_result)
+		left_layout.addWidget(analysis_result, 1)
+
+		splitter.addWidget(left_widget)
+
+		# Rechte Seite: Run/Abort + Log + Progress
+		right_widget = QWidget()
+		right_layout = QVBoxLayout(right_widget)
+		right_layout.setContentsMargins(4, 0, 0, 0)
+
 		run_layout = QHBoxLayout()
-		self.ffmpeg_btn_run = QPushButton("▶ Ausführen")
-		self.ffmpeg_btn_run.setMinimumHeight(36)
-		self.ffmpeg_btn_run.clicked.connect(self._on_ffmpeg_run)
-		run_layout.addWidget(self.ffmpeg_btn_run)
+		btn_run = QPushButton("▶ Ausführen")
+		btn_run.setMinimumHeight(36)
+		btn_run.clicked.connect(self._on_ffmpeg_run)
+		setattr(self, f"{prefix}_btn_run", btn_run)
+		run_layout.addWidget(btn_run)
 
-		self.ffmpeg_btn_abort = QPushButton("✕ Abbrechen")
-		self.ffmpeg_btn_abort.setMinimumHeight(36)
-		self.ffmpeg_btn_abort.setEnabled(False)
-		self.ffmpeg_btn_abort.clicked.connect(self._on_ffmpeg_abort)
-		run_layout.addWidget(self.ffmpeg_btn_abort)
+		btn_abort = QPushButton("✕ Abbrechen")
+		btn_abort.setMinimumHeight(36)
+		btn_abort.setEnabled(False)
+		btn_abort.clicked.connect(self._on_ffmpeg_abort)
+		btn_abort.setStyleSheet("color: #ff6666;")
+		setattr(self, f"{prefix}_btn_abort", btn_abort)
+		run_layout.addWidget(btn_abort)
 
-		self.ffmpeg_btn_abort.setStyleSheet("color: #ff6666;")
 		run_layout.addStretch()
-		self.ffmpeg_out_label = QLabel("")
-		run_layout.addWidget(self.ffmpeg_out_label)
-		layout.addLayout(run_layout)
+		out_label = QLabel("")
+		setattr(self, f"{prefix}_out_label", out_label)
+		run_layout.addWidget(out_label)
+		right_layout.addLayout(run_layout)
 
-		# Log
-		self.ffmpeg_log = QPlainTextEdit()
-		self.ffmpeg_log.setReadOnly(True)
-		self.ffmpeg_log.setMaximumBlockCount(1000)
-		self.ffmpeg_log.setStyleSheet("background: #111; color: #0f0; font-family: Consolas; font-size: 9pt;")
-		layout.addWidget(self.ffmpeg_log, 1)
+		ffmpeg_log = QPlainTextEdit()
+		ffmpeg_log.setReadOnly(True)
+		ffmpeg_log.setMaximumBlockCount(1000)
+		ffmpeg_log.setStyleSheet("background: #111; color: #0f0; font-family: Consolas; font-size: 9pt;")
+		setattr(self, f"{prefix}_log", ffmpeg_log)
+		right_layout.addWidget(ffmpeg_log, 1)
 
-		# Progress
-		self.ffmpeg_progress = QProgressBar()
-		self.ffmpeg_progress.setTextVisible(True)
-		layout.addWidget(self.ffmpeg_progress)
+		progress = QProgressBar()
+		progress.setTextVisible(True)
+		setattr(self, f"{prefix}_progress", progress)
+		right_layout.addWidget(progress)
 
-		self.nav_bar.addTab("ffmpeg")
+		splitter.addWidget(right_widget)
+		splitter.setStretchFactor(0, 1)
+		splitter.setStretchFactor(1, 2)
+		layout.addWidget(splitter, 1)
+
+		self.nav_bar.addTab(name)
 		self.content_stack.addWidget(widget)
 
+	def _build_videos_tab(self):
+		self._build_media_tab("Videos", "video", True)
+
+	def _build_bilder_tab(self):
+		self._build_media_tab("Bilder", "bild", False)
+
+	def _active_media_prefix(self):
+		idx = self.nav_bar.currentIndex()
+		if idx == 3:   # Videos
+			return "video"
+		elif idx == 4: # Bilder
+			return "bild"
+		return "video"
+
 	def _show_trim_widget(self):
-		self.ffmpeg_params_group.setVisible(False)
-		self.trim_widget.setVisible(True)
+		self.video_params_group.setVisible(False)
+		self.video_trim_widget.setVisible(True)
 
 	def _hide_trim_widget(self):
-		self.trim_widget.setVisible(False)
-		self.ffmpeg_params_group.setVisible(True)
+		prefix = self._active_media_prefix()
+		tw = getattr(self, f"{prefix}_trim_widget", None)
+		if tw:
+			tw.setVisible(False)
+		pg = getattr(self, f"{prefix}_params_group", None)
+		if pg:
+			pg.setVisible(True)
 
 	def _ffmpeg_preset_trim(self):
 		self._show_trim_widget()
 
 	def _ffmpeg_preset_frames(self):
 		self._hide_trim_widget()
-		self.ffmpeg_filter.setText("fps=1/10")
-		self.ffmpeg_format.setCurrentIndex(0)
-		self.ffmpeg_end.clear()
+		w = lambda n: getattr(self, f"video_{n}")
+		w("filter").setText("fps=1/10")
+		w("format").setCurrentIndex(0)
+		w("end").clear()
 
 	def _ffmpeg_preset_audio(self):
 		self._hide_trim_widget()
-		self.ffmpeg_filter.clear()
-		self.ffmpeg_format.setCurrentIndex(0)
-		self.ffmpeg_start.setTime(QTime(0, 0))
-		self.ffmpeg_end.clear()
+		w = lambda n: getattr(self, f"video_{n}")
+		w("filter").clear()
+		w("format").setCurrentIndex(0)
+		w("start").setTime(QTime(0, 0))
+		w("end").clear()
 
 	def _ffmpeg_preset_timecode(self):
 		self._hide_trim_widget()
-		self.ffmpeg_filter.setText(
+		w = lambda n: getattr(self, f"video_{n}")
+		w("filter").setText(
 			"drawtext=timecode='00\\:00\\:00\\:00':rate=25:fontsize=40:fontcolor=white:box=1:boxcolor=black@1:x=10:y=__POSITION__,"
 			"drawtext=timecode='__REALTIME__':rate=25:fontsize=40:fontcolor=white:box=1:boxcolor=black@1:x=main_w-text_w-10:y=__POSITION__"
 		)
-		self.ffmpeg_format.setCurrentIndex(0)
-		self.ffmpeg_start.setTime(QTime(0, 0))
-		self.ffmpeg_end.clear()
+		w("format").setCurrentIndex(0)
+		w("start").setTime(QTime(0, 0))
+		w("end").clear()
 
 	def _ffmpeg_preset_container(self):
 		self._hide_trim_widget()
-		self.ffmpeg_filter.clear()
-		self.ffmpeg_format.setCurrentIndex(0)
-		self.ffmpeg_start.setTime(QTime(0, 0))
-		self.ffmpeg_end.clear()
+		p = self._active_media_prefix()
+		w = lambda n: getattr(self, f"{p}_{n}")
+		w("filter").clear()
+		w("format").setCurrentIndex(0)
+		if p == "video":
+			w("start").setTime(QTime(0, 0))
+			w("end").clear()
 
 	def _ffmpeg_preset_hash(self):
 		self._hide_trim_widget()
-		self.ffmpeg_filter.setText("-f framehash -")
-		self.ffmpeg_format.setCurrentIndex(0)
-		self.ffmpeg_start.setTime(QTime(0, 0))
-		self.ffmpeg_end.clear()
+		p = self._active_media_prefix()
+		w = lambda n: getattr(self, f"{p}_{n}")
+		w("filter").setText("-f framehash -")
+		w("format").setCurrentIndex(0)
+		if p == "video":
+			w("start").setTime(QTime(0, 0))
+			w("end").clear()
 
 	def _ffmpeg_preset_custom(self):
 		self._hide_trim_widget()
 
 	def _ffmpeg_preset_bitstream(self):
 		self._hide_trim_widget()
-		self.ffmpeg_filter.setText("__BITSTREAM__")
+		w = lambda n: getattr(self, f"video_{n}")
+		w("filter").setText("__BITSTREAM__")
 
 	def _on_ffmpeg_run(self):
 		inp = self.ffmpeg_input_path
@@ -502,27 +576,36 @@ class MainWindowMixin(QMainWindow):
 			QMessageBox.warning(self, "Keine Datei", "Bitte zuerst eine Datei auswählen.")
 			return
 
-		# Lossless Trim via TrimWidget
-		if self.trim_widget.isVisible():
-			start_f = self.trim_widget.get_start_frame()
-			end_f = self.trim_widget.get_end_frame()
-			mode = self.trim_widget.get_trim_mode()
-			if end_f <= start_f:
-				QMessageBox.warning(self, "Ungültiger Bereich",
-									"Der Endframe muss größer als der Startframe sein.")
+		prefix = self._active_media_prefix()
+		w = lambda n: getattr(self, f"{prefix}_{n}")
+
+		# Lossless Trim via TrimWidget (nur Videos)
+		if prefix == "video":
+			tw = getattr(self, "video_trim_widget", None)
+			if tw and tw.isVisible():
+				start_f = tw.get_start_frame()
+				end_f = tw.get_end_frame()
+				mode = tw.get_trim_mode()
+				if end_f <= start_f:
+					QMessageBox.warning(self, "Ungültiger Bereich",
+										"Der Endframe muss größer als der Startframe sein.")
+					return
+				self.ffmpeg_lossless_trim_requested.emit(inp, start_f, end_f, mode)
 				return
-			self.ffmpeg_lossless_trim_requested.emit(inp, start_f, end_f, mode)
-			return
 
-		start = self.ffmpeg_start.time().toString("HH:mm:ss")
-		end = self.ffmpeg_end.time().toString("HH:mm:ss") if self.ffmpeg_end.time() != QTime(0, 0) else ""
-		filter_str = self.ffmpeg_filter.text().strip()
-		fmt = self.ffmpeg_format.currentData()
+		if prefix == "video":
+			start = w("start").time().toString("HH:mm:ss")
+			end = w("end").time().toString("HH:mm:ss") if w("end").time() != QTime(0, 0) else ""
+		else:
+			start = "00:00:00"
+			end = ""
+		filter_str = w("filter").text().strip()
+		fmt = w("format").currentData()
 
-		# __REALTIME__ durch encoded_date + UTC-Offset ersetzen
-		if "__REALTIME__" in filter_str:
-			encoded = self.ffmpeg_encoded_label.text()
-			utc_offset = self.ffmpeg_utc_combo.currentData()
+		# __REALTIME__ durch encoded_date + UTC-Offset ersetzen (nur Videos)
+		if prefix == "video" and "__REALTIME__" in filter_str:
+			encoded = w("encoded_label").text()
+			utc_offset = w("utc_combo").currentData()
 			realtime_plain = "00:00:00:00"
 			if encoded != "–" and "T" in encoded:
 				try:
@@ -531,14 +614,13 @@ class MainWindowMixin(QMainWindow):
 					realtime_plain = dt.strftime("%H:%M:%S") + ":00"
 				except Exception:
 					pass
-			# \: - Escapes für den Filterparser einbauen
 			realtime_val = realtime_plain.replace(":", "\\:")
 			filter_str = filter_str.replace("__REALTIME__", realtime_val)
 
-		if "__POSITION__" in filter_str:
-			filter_str = filter_str.replace("__POSITION__", self.ffmpeg_tc_pos.currentData())
+		if prefix == "video" and "__POSITION__" in filter_str:
+			filter_str = filter_str.replace("__POSITION__", w("tc_pos").currentData())
 
-		self.ffmpeg_run_requested.emit(inp, start + "|" + end + "|" + filter_str, fmt)
+		self.ffmpeg_run_requested.emit(inp, start + "|" + end + "|" + filter_str, fmt, prefix)
 
 	def _on_ffmpeg_abort(self):
 		self.ffmpeg_abort_requested.emit()
@@ -551,29 +633,41 @@ class MainWindowMixin(QMainWindow):
 		)
 		if path:
 			self.set_ffmpeg_file(path)
-			# load into trim widget as well (safe to call even if hidden)
+			# load into video trim widget as well (safe to call even if hidden)
 			from .trim_widget import TrimWidget
-			self.trim_widget.load_file(path)
+			if hasattr(self, "video_trim_widget"):
+				self.video_trim_widget.load_file(path)
 
 	def set_ffmpeg_file(self, path):
 		self.ffmpeg_input_path = path
-		self.ffmpeg_file_label.setText(os.path.basename(path))
-		self.ffmpeg_file_label.setToolTip(path)
-		self.ffprobe_file_label.setText(os.path.basename(path))
-		self.ffprobe_file_label.setToolTip(path)
-		self.ffmpeg_log.clear()
-		self.ffmpeg_progress.setValue(0)
+		for p in ("video", "bild"):
+			fl = getattr(self, f"{p}_file_label", None)
+			if fl:
+				fl.setText(os.path.basename(path))
+				fl.setToolTip(path)
+			lg = getattr(self, f"{p}_log", None)
+			if lg:
+				lg.clear()
+			pr = getattr(self, f"{p}_progress", None)
+			if pr:
+				pr.setValue(0)
 		self._update_ffmpeg_encoded_date(path)
 		try:
 			self.set_hex_file(path)
 		except Exception as e:
 			print(f"set_hex_file fehlgeschlagen: {e}")
 		try:
-			self.trim_widget.load_file(path)
+			if hasattr(self, "video_trim_widget"):
+				self.video_trim_widget.load_file(path)
 		except Exception as e:
 			print(f"trim_widget.load_file fehlgeschlagen: {e}")
 
 	def _update_ffmpeg_encoded_date(self, path):
+		label = None
+		if hasattr(self, "video_encoded_label"):
+			label = self.video_encoded_label
+		if label is None:
+			return
 		try:
 			from ..model.base import BASE_DIR
 			r = subprocess.run(
@@ -584,7 +678,7 @@ class MainWindowMixin(QMainWindow):
 			)
 			out = r.stdout.strip()
 			if out:
-				self.ffmpeg_encoded_label.setText(out)
+				label.setText(out)
 				return
 		except Exception as e:
 			print(f"_update_ffmpeg_encoded_date ffprobe: {e}")
@@ -604,12 +698,12 @@ class MainWindowMixin(QMainWindow):
 					gen = md.get("General", {})
 					ct = gen.get("encoded_date") or gen.get("creation_date") or gen.get("file_creation_date_local", "")
 					if ct:
-						self.ffmpeg_encoded_label.setText(ct)
+						label.setText(ct)
 						return
 		except Exception as e:
 			print(f"_update_ffmpeg_encoded_date db: {e}")
 
-		self.ffmpeg_encoded_label.setText("–")
+		label.setText("–")
 
 	def _get_db_connection(self):
 		for cls in type(self).__mro__:
@@ -618,12 +712,13 @@ class MainWindowMixin(QMainWindow):
 		return None
 
 	def _on_ffprobe_analyse(self, mode):
-		path = self.ffmpeg_input_path or self.ffprobe_file_label.text()
-		if path == "–":
+		path = self.ffmpeg_input_path
+		if not path:
 			QMessageBox.warning(self, "Keine Datei", "Bitte zuerst eine Datei auswählen.")
 			return
-		self.ffprobe_result.clear()
-		self.ffprobe_analyse_requested.emit(path, mode)
+		prefix = self._active_media_prefix()
+		getattr(self, f"{prefix}_result").clear()
+		self.ffprobe_analyse_requested.emit(path, mode, prefix)
 
 	def _on_meta_search(self, query):
 		if hasattr(self, "search_metadata_tables"):
@@ -954,7 +1049,7 @@ class MainWindowMixin(QMainWindow):
 		name = "Sommerzeit UTC+2 (MESZ)" if offset == 2 else "Winterzeit UTC+1 (MEZ)"
 		if hasattr(self, 'lbl_tz_info'):
 			self.lbl_tz_info.setText(name)
-		for combo_name in ('ffmpeg_utc_combo', 'cbo_offset'):
+		for combo_name in ('video_utc_combo', 'bild_utc_combo', 'cbo_offset'):
 			combo = getattr(self, combo_name, None)
 			if combo:
 				idx = combo.findData(offset)

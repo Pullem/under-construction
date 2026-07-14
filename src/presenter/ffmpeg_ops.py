@@ -15,9 +15,10 @@ class FfmpegOpsMixin:
 		super().__init__(**kwargs)
 		self._ffmpeg_proc = None
 
-	def handle_ffmpeg_run(self, input_path, args_str, codec_fmt):
+	def handle_ffmpeg_run(self, input_path, args_str, codec_fmt, prefix="video"):
 		if self._ffmpeg_proc:
 			return
+		self._ffmpeg_prefix = prefix
 
 		parts = args_str.split("|", 2)
 		start_ts = parts[0] if len(parts) > 0 else "00:00:00"
@@ -94,12 +95,17 @@ class FfmpegOpsMixin:
 			cmd.append(str(out_path_capture))
 
 		self._ffmpeg_log(f"Starte: {' '.join(cmd)}")
-		if hasattr(self.view, 'ffmpeg_progress'):
-			self.view.ffmpeg_progress.setValue(0)
-		if hasattr(self.view, 'ffmpeg_btn_run'):
-			self.view.ffmpeg_btn_run.setEnabled(False)
-		if hasattr(self.view, 'ffmpeg_btn_abort'):
-			self.view.ffmpeg_btn_abort.setEnabled(True)
+		v = self.view
+		p = self._ffmpeg_prefix
+		progress = getattr(v, f'{p}_progress', None)
+		if progress:
+			progress.setValue(0)
+		btn_run = getattr(v, f'{p}_btn_run', None)
+		if btn_run:
+			btn_run.setEnabled(False)
+		btn_abort = getattr(v, f'{p}_btn_abort', None)
+		if btn_abort:
+			btn_abort.setEnabled(True)
 
 		self._ffmpeg_proc = QProcess()
 		self._ffmpeg_proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
@@ -136,16 +142,21 @@ class FfmpegOpsMixin:
 			return
 		data = self._ffmpeg_proc.readAllStandardOutput().data().decode("utf-8", errors="replace")
 		self._ffmpeg_log(data.rstrip())
-		update_progress(data, duration, self.view)
+		update_progress(data, duration, self.view, getattr(self, '_ffmpeg_prefix', 'video'))
 
 	def _on_ffmpeg_finished(self, exit_code, status, out_path):
 		self._ffmpeg_proc = None
-		if hasattr(self.view, 'ffmpeg_progress'):
-			self.view.ffmpeg_progress.setValue(100 if exit_code == 0 else 0)
-		if hasattr(self.view, 'ffmpeg_btn_run'):
-			self.view.ffmpeg_btn_run.setEnabled(True)
-		if hasattr(self.view, 'ffmpeg_btn_abort'):
-			self.view.ffmpeg_btn_abort.setEnabled(False)
+		p = getattr(self, '_ffmpeg_prefix', 'video')
+		v = self.view
+		progress = getattr(v, f'{p}_progress', None)
+		if progress:
+			progress.setValue(100 if exit_code == 0 else 0)
+		btn_run = getattr(v, f'{p}_btn_run', None)
+		if btn_run:
+			btn_run.setEnabled(True)
+		btn_abort = getattr(v, f'{p}_btn_abort', None)
+		if btn_abort:
+			btn_abort.setEnabled(False)
 
 		if exit_code == 0 and out_path and out_path.exists():
 			self._ffmpeg_log(f"Fertig: {out_path}")
@@ -169,12 +180,17 @@ class FfmpegOpsMixin:
 			self._ffmpeg_proc.kill()
 			self._ffmpeg_proc = None
 			self._ffmpeg_log("Abgebrochen.")
-			if hasattr(self.view, 'ffmpeg_btn_run'):
-				self.view.ffmpeg_btn_run.setEnabled(True)
-			if hasattr(self.view, 'ffmpeg_btn_abort'):
-				self.view.ffmpeg_btn_abort.setEnabled(False)
+			p = getattr(self, '_ffmpeg_prefix', 'video')
+			v = self.view
+			btn_run = getattr(v, f'{p}_btn_run', None)
+			if btn_run:
+				btn_run.setEnabled(True)
+			btn_abort = getattr(v, f'{p}_btn_abort', None)
+			if btn_abort:
+				btn_abort.setEnabled(False)
 
 	def handle_lossless_trim(self, input_path, start_frame, end_frame, mode):
+		self._ffmpeg_prefix = "video"
 		src = Path(input_path)
 		if not src.exists():
 			self._ffmpeg_log(f"Datei nicht gefunden: {input_path}")
@@ -207,12 +223,17 @@ class FfmpegOpsMixin:
 			   "-avoid_negative_ts", "make_zero",
 			   str(out_path)]
 		self._ffmpeg_log(f"Starte: {' '.join(cmd)}")
-		if hasattr(self.view, 'ffmpeg_progress'):
-			self.view.ffmpeg_progress.setValue(0)
-		if hasattr(self.view, 'ffmpeg_btn_run'):
-			self.view.ffmpeg_btn_run.setEnabled(False)
-		if hasattr(self.view, 'ffmpeg_btn_abort'):
-			self.view.ffmpeg_btn_abort.setEnabled(True)
+		p = self._ffmpeg_prefix
+		v = self.view
+		progress = getattr(v, f'{p}_progress', None)
+		if progress:
+			progress.setValue(0)
+		btn_run = getattr(v, f'{p}_btn_run', None)
+		if btn_run:
+			btn_run.setEnabled(False)
+		btn_abort = getattr(v, f'{p}_btn_abort', None)
+		if btn_abort:
+			btn_abort.setEnabled(True)
 
 		self._ffmpeg_proc = QProcess()
 		self._ffmpeg_proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
@@ -263,8 +284,10 @@ class FfmpegOpsMixin:
 			return []
 
 	def _ffmpeg_log(self, msg):
-		if hasattr(self.view, 'ffmpeg_log'):
-			self.view.ffmpeg_log.appendPlainText(msg)
+		p = getattr(self, '_ffmpeg_prefix', 'video')
+		log_widget = getattr(self.view, f'{p}_log', None)
+		if log_widget:
+			log_widget.appendPlainText(msg)
 
 	def _setup_fontconfig(self):
 		try:
@@ -304,8 +327,9 @@ class FfmpegOpsMixin:
 			pass
 		return None
 
-	def handle_ffprobe_analyse(self, filepath, mode):
+	def handle_ffprobe_analyse(self, filepath, mode, prefix="video"):
 		self._last_probe_path = filepath
+		self._last_probe_prefix = prefix
 		cmd = self._build_ffprobe_cmd(filepath, mode)
 		if not cmd:
 			self._ffmpeg_log_probe(f"Unbekannter Modus: {mode}")
@@ -715,12 +739,16 @@ class FfmpegOpsMixin:
 
 	def _write_probe_result(self, lines):
 		text = "\n".join(lines) if isinstance(lines, list) else lines
-		if hasattr(self.view, 'ffprobe_result'):
-			self.view.ffprobe_result.setPlainText(text)
+		p = getattr(self, '_last_probe_prefix', 'video')
+		result_widget = getattr(self.view, f'{p}_result', None)
+		if result_widget:
+			result_widget.setPlainText(text)
 
 	def _ffmpeg_log_probe(self, msg):
-		if hasattr(self.view, 'ffprobe_result'):
-			self.view.ffprobe_result.appendPlainText(msg)
+		p = getattr(self, '_last_probe_prefix', 'video')
+		result_widget = getattr(self.view, f'{p}_result', None)
+		if result_widget:
+			result_widget.appendPlainText(msg)
 
 	def _run_ffmpeg_blackdetect(self, filepath, raw_output=None):
 		self._ffmpeg_log_probe(f"Black-Detect: {filepath}")
@@ -960,13 +988,16 @@ class FfmpegOpsMixin:
 			return None
 
 
-def update_progress(data, duration, view):
+def update_progress(data, duration, view, prefix="video"):
 	import re
-	if not duration or not hasattr(view, 'ffmpeg_progress'):
+	if not duration:
+		return
+	progress = getattr(view, f'{prefix}_progress', None)
+	if not progress:
 		return
 	m = re.search(r"time=(\d+):(\d+):(\d+)\.(\d+)", data)
 	if m:
 		h, mi, s, _ = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
 		current = h * 3600 + mi * 60 + s
 		pct = min(99, int(current / duration * 100))
-		view.ffmpeg_progress.setValue(pct)
+		progress.setValue(pct)
