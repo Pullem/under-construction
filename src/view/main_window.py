@@ -420,6 +420,7 @@ class MainWindowMixin(QMainWindow):
 				("streams", "Stream-Übersicht"),
 				("blackdetect", "Black-Detect"),
 				("quickcheck", "Quick-Check"),
+				("ela", "ELA-Analyse"),
 			]
 
 		analysis_toolbar = QHBoxLayout()
@@ -436,7 +437,18 @@ class MainWindowMixin(QMainWindow):
 		analysis_result.setReadOnly(True)
 		analysis_result.setStyleSheet("background: #111; color: #0f0; font-family: Consolas; font-size: 9pt;")
 		setattr(self, f"{prefix}_result", analysis_result)
-		left_layout.addWidget(analysis_result, 1)
+		left_layout.addWidget(analysis_result, 3)
+
+		# ELA-Vorschau (nur Bilder-Tab)
+		if not is_video:
+			ela_preview = QLabel()
+			ela_preview.setFixedHeight(200)
+			ela_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+			ela_preview.setStyleSheet("border: 1px solid #444; background: #111; color: #666;")
+			ela_preview.setText("ELA-Ergebnis erscheint hier")
+			ela_preview.setVisible(False)
+			setattr(self, f"{prefix}_ela_preview", ela_preview)
+			left_layout.addWidget(ela_preview)
 
 		splitter.addWidget(left_widget)
 

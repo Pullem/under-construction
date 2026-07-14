@@ -148,3 +148,91 @@ class FfprobeWorker(QRunnable):
 			self.signals.result.emit(self.mode, r.stdout, r.stderr)
 		except Exception as e:
 			self.signals.error.emit(self.mode, str(e))
+
+
+class ElaWorkerSignals(QObject):
+	result = pyqtSignal(str, str, str, str)  # mode, text_result, error_map_path, hist_path
+	error = pyqtSignal(str, str)             # mode, error_msg
+
+class ElaWorker(QRunnable):
+	def __init__(self, filepath, exports_dir, quality=95):
+		super().__init__()
+		self.filepath = filepath
+		self.exports_dir = Path(exports_dir)
+		self.quality = quality
+		self.signals = ElaWorkerSignals()
+
+	def run(self):
+		try:
+			from PIL import Image
+			import numpy as np
+			import matplotlib
+			matplotlib.use("Agg")
+			import matplotlib.pyplot as plt
+
+			stem = Path(self.filepath).stem
+			src = Image.open(self.filepath).convert("RGB")
+
+			# Re-save at target quality
+			temp_jpeg = self.exports_dir / f"{stem}_ela_temp.jpg"
+			src.save(str(temp_jpeg), "JPEG", quality=self.quality)
+
+			# Reload and compute difference
+			recomp = Image.open(str(temp_jpeg)).convert("RGB")
+			arr_src = np.array(src, dtype=np.int16)
+			arr_rec = np.array(recomp, dtype=np.int16)
+			diff = np.abs(arr_src - arr_rec).max(axis=2).astype(np.uint8)
+
+			max_err = int(diff.max())
+			total_pixels = diff.size
+			altered = int((diff > 0).sum())
+			mean_err = float(diff.mean())
+			std_err = float(diff.std())
+			pct_altered = altered / total_pixels * 100
+
+			# Error distribution map
+			errormap_path = self.exports_dir / f"{stem}_ela_errormap.png"
+			fig, ax = plt.subplots(figsize=(8, 6), facecolor="#1e1e1e")
+			vmax = max(1, max_err)
+			im = ax.imshow(diff, cmap="hot", vmin=0, vmax=vmax)
+			ax.set_title("ELA Error Distribution", color="#ccc", fontsize=12)
+			ax.axis("off")
+			fig.colorbar(im, ax=ax, label="Error-Level")
+			fig.savefig(str(errormap_path), dpi=150, bbox_inches="tight")
+			plt.close(fig)
+
+			# Error histogram
+			hist_path = self.exports_dir / f"{stem}_ela_histogram.png"
+			fig, ax = plt.subplots(figsize=(6, 3), facecolor="#1e1e1e")
+			ax.hist(diff.ravel(), bins=256, range=(0, 255), color="#0f0", alpha=0.8)
+			ax.set_xlabel("Error-Level", color="#ccc")
+			ax.set_ylabel("Pixel", color="#ccc")
+			ax.set_title(f"ELA Histogram — {Path(self.filepath).name}", color="#ccc")
+			ax.tick_params(colors="#ccc")
+			ax.grid(axis="y", alpha=0.3)
+			fig.tight_layout()
+			fig.savefig(str(hist_path), dpi=150)
+			plt.close(fig)
+
+			# Clean up temp
+			if temp_jpeg.exists():
+				temp_jpeg.unlink()
+
+			# Build text result
+			text = (
+				f"ELA-Analyse: {Path(self.filepath).name}\n"
+				f"{'-' * 50}\n"
+				f"Qualität: {self.quality}%\n"
+				f"Max-Fehler: {max_err}\n"
+				f"Mittlerer Fehler: {mean_err:.2f}\n"
+				f"Std-Abweichung: {std_err:.2f}\n"
+				f"Veränderte Pixel: {altered} / {total_pixels} ({pct_altered:.1f}%)\n"
+				f"\n"
+				f"Error-Map: {errormap_path}\n"
+				f"Histogram: {hist_path}\n"
+			)
+
+			self.signals.result.emit("ela", text, str(errormap_path), str(hist_path))
+
+		except Exception as e:
+			self.signals.error.emit("ela", str(e))

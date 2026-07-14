@@ -4,10 +4,10 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
-from PyQt6.QtCore import QProcess, QByteArray, QThreadPool
+from PyQt6.QtCore import Qt, QProcess, QByteArray, QThreadPool
 
 from ..model.base import BASE_DIR
-from ..worker import AnalysisWorker, FfprobeWorker
+from ..worker import AnalysisWorker, FfprobeWorker, ElaWorker
 
 
 class FfmpegOpsMixin:
@@ -330,6 +330,18 @@ class FfmpegOpsMixin:
 	def handle_ffprobe_analyse(self, filepath, mode, prefix="video"):
 		self._last_probe_path = filepath
 		self._last_probe_prefix = prefix
+
+		# ELA nutzt Python (Pillow + NumPy + matplotlib), kein ffprobe/ffmpeg
+		if mode == "ela":
+			self._ffmpeg_log_probe(f"Starte {mode} (async)...")
+			exports_dir = Path(self.model.current_case_path) / "exports" if self.model.current_case_path else Path()
+			exports_dir.mkdir(parents=True, exist_ok=True)
+			worker = ElaWorker(filepath, str(exports_dir))
+			worker.signals.result.connect(self._on_ela_result)
+			worker.signals.error.connect(self._on_ela_error)
+			self.threadpool.start(worker)
+			return
+
 		cmd = self._build_ffprobe_cmd(filepath, mode)
 		if not cmd:
 			self._ffmpeg_log_probe(f"Unbekannter Modus: {mode}")
@@ -393,6 +405,32 @@ class FfmpegOpsMixin:
 
 	def _on_ffprobe_error(self, mode, error_msg):
 		self._ffmpeg_log_probe(f"Fehler bei {mode}: {error_msg}")
+
+	def _on_ela_result(self, mode, text_result, error_map_path, hist_path):
+		self._ffmpeg_log_probe("ELA-Analyse abgeschlossen.")
+		p = getattr(self, '_last_probe_prefix', 'video')
+		# Text-Ergebnis anzeigen
+		result_widget = getattr(self.view, f'{p}_result', None)
+		if result_widget:
+			result_widget.setPlainText(text_result)
+		# Error-Map als Vorschaubild anzeigen
+		preview = getattr(self.view, f'{p}_ela_preview', None)
+		if preview and os.path.exists(error_map_path):
+			from PyQt6.QtGui import QPixmap
+			pixmap = QPixmap(error_map_path)
+			if not pixmap.isNull():
+				preview.setPixmap(pixmap.scaled(
+					preview.width(), preview.height(),
+					Qt.AspectRatioMode.KeepAspectRatio,
+					Qt.TransformationMode.SmoothTransformation))
+				preview.setVisible(True)
+
+	def _on_ela_error(self, mode, error_msg):
+		self._ffmpeg_log_probe(f"ELA-Fehler: {error_msg}")
+		p = getattr(self, '_last_probe_prefix', 'video')
+		result_widget = getattr(self.view, f'{p}_result', None)
+		if result_widget:
+			result_widget.setPlainText(f"ELA-Fehler: {error_msg}")
 
 	def _run_ffprobe_quickcheck(self, filepath, raw_output=None):
 		self._ffmpeg_log_probe(f"Quick-Check: {filepath}")
