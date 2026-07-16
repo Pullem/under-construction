@@ -206,16 +206,20 @@ class MainWindowMixin(QMainWindow):
 
 	def _on_ffmpeg_browse(self):
 		from PyQt6.QtWidgets import QFileDialog
+		prefix = active_media_prefix(self)
+		if prefix == "video":
+			filter_str = "Video (*.mp4 *.mov *.avi *.mkv *.webm *.mts)"
+		else:
+			filter_str = "Bild (*.jpg *.jpeg *.png *.tif *.tiff *.bmp)"
 		path, _ = QFileDialog.getOpenFileName(
-			self, "Mediendatei auswählen", "",
-			"Media Files (*.mp4 *.mov *.avi *.mkv *.webm *.mts *.jpg *.png)"
+			self, "Mediendatei auswählen", "", filter_str
 		)
 		if path:
 			self.set_ffmpeg_file(path)
-			# load into video trim widget as well (safe to call even if hidden)
-			from .trim_widget import TrimWidget
-			if hasattr(self, "video_trim_widget"):
-				self.video_trim_widget.load_file(path)
+			if prefix == "video":
+				from .trim_widget import TrimWidget
+				if hasattr(self, "video_trim_widget"):
+					self.video_trim_widget.load_file(path)
 
 	def set_ffmpeg_file(self, path):
 		self.ffmpeg_input_path = path
@@ -241,7 +245,7 @@ class MainWindowMixin(QMainWindow):
 		except Exception as e:
 			print(f"trim_widget.load_file fehlgeschlagen: {e}")
 		try:
-			if hasattr(self, "_plugin_enhance"):
+			if hasattr(self, "_plugin_enhance") and path.lower().endswith(('.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp')):
 				self._plugin_enhance.load_image(path)
 		except Exception as e:
 			print(f"plugin_enhance.load_image fehlgeschlagen: {e}")

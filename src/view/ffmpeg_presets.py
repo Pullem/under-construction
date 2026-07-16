@@ -1,6 +1,9 @@
 from PyQt6.QtCore import QTime
 
-from .tab_builder import active_media_prefix
+
+def _prefix(view):
+	from .tab_builder import active_media_prefix
+	return active_media_prefix(view)
 
 
 def show_trim_widget(view):
@@ -9,7 +12,7 @@ def show_trim_widget(view):
 
 
 def hide_trim_widget(view):
-	prefix = active_media_prefix(view)
+	prefix = _prefix(view)
 	tw = getattr(view, f"{prefix}_trim_widget", None)
 	if tw:
 		tw.setVisible(False)
@@ -53,7 +56,7 @@ def preset_timecode(view):
 
 def preset_container(view):
 	hide_trim_widget(view)
-	p = active_media_prefix(view)
+	p = _prefix(view)
 	w = lambda n: getattr(view, f"{p}_{n}")
 	w("filter").clear()
 	w("format").setCurrentIndex(0)
@@ -64,7 +67,7 @@ def preset_container(view):
 
 def preset_hash(view):
 	hide_trim_widget(view)
-	p = active_media_prefix(view)
+	p = _prefix(view)
 	w = lambda n: getattr(view, f"{p}_{n}")
 	w("filter").setText("-f framehash -")
 	w("format").setCurrentIndex(0)
