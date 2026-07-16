@@ -2,11 +2,8 @@ import os
 from io import BytesIO
 
 import numpy as np
+import pyqtgraph as pg
 from PIL import Image, ImageOps
-
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider,
@@ -28,6 +25,7 @@ class ImageEnhanceWidget(QWidget):
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self._update_preview)
+        self._curves = {}
         self._setup_ui()
 
     def _setup_ui(self):
@@ -85,11 +83,19 @@ class ImageEnhanceWidget(QWidget):
 
         blay.addWidget(ctrl, 1)
 
-        self._hist_view = QLabel("Histogramm")
-        self._hist_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._hist_view.setStyleSheet("border: 1px solid #444; background: #111; color: #666; font-size: 11pt;")
-        self._hist_view.setMinimumWidth(300)
-        blay.addWidget(self._hist_view, 1)
+        self._hist_plot = pg.PlotWidget()
+        self._hist_plot.setBackground('#111111')
+        self._hist_plot.setMinimumWidth(300)
+        self._hist_plot.setLabel('left', 'Count', color='#aaa', fontsize=9)
+        self._hist_plot.setLabel('bottom', 'Pixel Value', color='#aaa', fontsize=9)
+        self._hist_plot.setTitle('R / G / B / Luma', color='#ccc', size='10pt')
+        self._hist_plot.showGrid(x=False, y=True, alpha=0.15)
+        self._hist_plot.setXRange(0, 1, padding=0)
+        self._hist_plot.getAxis('bottom').setPen(pg.mkPen('#444'))
+        self._hist_plot.getAxis('left').setPen(pg.mkPen('#444'))
+        self._hist_plot.getAxis('bottom').setTextPen(pg.mkPen('#aaa'))
+        self._hist_plot.getAxis('left').setTextPen(pg.mkPen('#aaa'))
+        blay.addWidget(self._hist_plot, 1)
 
         layout.addWidget(bottom, 2)
 
@@ -172,31 +178,21 @@ class ImageEnhanceWidget(QWidget):
         label.setPixmap(pix)
 
     def _render_histogram(self, arr):
-        fig, ax = plt.subplots(figsize=(4, 2.4), facecolor='#1e1e1e')
-        ax.set_facecolor('#1e1e1e')
         bins = np.linspace(0, 1, 257)
-        colors = ('red', 'green', 'blue')
-        for i, c in enumerate(colors):
+        colors = {'r': '#ff4444', 'g': '#44ff44', 'b': '#4488ff'}
+        for i, label in enumerate(('r', 'g', 'b')):
             h, _ = np.histogram(arr[:, :, i], bins=bins)
-            ax.plot(bins[:-1], h, color=c, alpha=0.7, linewidth=0.7)
+            if label not in self._curves:
+                self._curves[label] = self._hist_plot.plot(bins[:-1], h, pen=pg.mkPen(colors[label], width=1.2))
+            else:
+                self._curves[label].setData(bins[:-1], h)
+
         luma = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
         hl, _ = np.histogram(luma, bins=bins)
-        ax.fill_between(bins[:-1], hl, alpha=0.15, color='#aaa')
-        ax.tick_params(colors='#aaa', labelsize=7)
-        ax.set_xlim(0, 1)
-        for sp in ax.spines.values():
-            sp.set_color('#444')
-        ax.set_xlabel('Pixel Value', color='#aaa', fontsize=8)
-        ax.set_ylabel('Count', color='#aaa', fontsize=8)
-        ax.set_title('R / G / B / Luma', color='#ccc', fontsize=9)
-        fig.tight_layout()
-        buf = BytesIO()
-        fig.savefig(buf, format='png', dpi=100, facecolor=fig.get_facecolor())
-        plt.close(fig)
-        buf.seek(0)
-        pix = QPixmap()
-        pix.loadFromData(buf.read())
-        self._hist_view.setPixmap(pix)
+        if 'luma' not in self._curves:
+            self._curves['luma'] = self._hist_plot.plot(bins[:-1], hl, pen=pg.mkPen('#aaaaaa', width=1, style=Qt.PenStyle.DashLine))
+        else:
+            self._curves['luma'].setData(bins[:-1], hl)
 
     # ── actions ─────────────────────────────────────────────
 
