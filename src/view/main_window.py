@@ -14,7 +14,7 @@ from PyQt6.QtGui import QPixmap, QPainter, QColor
 
 from .hex_view import HexViewWidget
 from .trim_widget import TrimWidget
-from .image_enhance_widget import ImageEnhanceWidget
+from .image_enhance_widget import ImageEnhanceWindow
 from .tab_builder import (build_case_tab, build_import_tab, build_metadata_tab,
 	build_videos_tab, build_bilder_tab, build_settings_tab,
 	build_hex_tab, build_analysis_tab, build_placeholder_tab,
@@ -137,7 +137,7 @@ class MainWindowMixin(QMainWindow):
 		self.nav_bar.currentChanged.connect(self.content_stack.setCurrentIndex)
 		self.content_stack.currentChanged.connect(lambda i: update_plugin_tab_labels(self, i))
 		self.content_stack.currentChanged.connect(lambda i: toggle_plugin_panel(self, i))
-		self.plugin_bar.currentChanged.connect(self.plugin_stack.setCurrentIndex)
+		self.plugin_bar.currentChanged.connect(self._on_plugin_tab_clicked)
 
 		self._refresh_timezone()
 
@@ -148,6 +148,17 @@ class MainWindowMixin(QMainWindow):
 		# Initialen Status setzen
 		update_plugin_tab_labels(self, 0)
 		toggle_plugin_panel(self, 0)
+
+	def _on_plugin_tab_clicked(self, index):
+		if index == 0:
+			self._open_enhance_window()
+		else:
+			self.plugin_stack.setCurrentIndex(index)
+
+	def _open_enhance_window(self):
+		if not hasattr(self, "_enhance_window") or self._enhance_window is None:
+			self._enhance_window = ImageEnhanceWindow()
+		self._enhance_window.show_image(self.ffmpeg_input_path)
 
 	def _on_ffmpeg_run(self):
 		inp = self.ffmpeg_input_path
@@ -245,10 +256,10 @@ class MainWindowMixin(QMainWindow):
 		except Exception as e:
 			print(f"trim_widget.load_file fehlgeschlagen: {e}")
 		try:
-			if hasattr(self, "_plugin_enhance") and path.lower().endswith(('.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp')):
-				self._plugin_enhance.load_image(path)
+			if hasattr(self, "_enhance_window") and self._enhance_window.isVisible():
+				self._enhance_window.load_image(path)
 		except Exception as e:
-			print(f"plugin_enhance.load_image fehlgeschlagen: {e}")
+			print(f"_enhance_window.load_image fehlgeschlagen: {e}")
 
 	def _update_ffmpeg_encoded_date(self, path):
 		label = None

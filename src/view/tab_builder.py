@@ -11,7 +11,6 @@ from PyQt6.QtGui import QPixmap
 
 from .hex_view import HexViewWidget
 from .trim_widget import TrimWidget
-from .image_enhance_widget import ImageEnhanceWidget
 from .ffmpeg_presets import (preset_trim, preset_frames, preset_audio,
 	preset_timecode, preset_container, preset_hash, preset_custom,
 	preset_bitstream)
@@ -20,13 +19,19 @@ from .ffmpeg_presets import (preset_trim, preset_frames, preset_audio,
 def update_plugin_tab_labels(view, index):
 	prefix = "V" if index == 3 else "B" if index == 4 else ""
 	for i in range(6):
-		view.plugin_bar.setTabText(i, f"Plugin {prefix}{i + 1}")
+		if prefix == "B" and i == 0:
+			view.plugin_bar.setTabText(i, "Histogramm/Gamma")
+		else:
+			view.plugin_bar.setTabText(i, f"Plugin {prefix}{i + 1}")
 
 
 def build_plugin_content(view):
-	# B1: ImageEnhanceWidget
-	view._plugin_enhance = ImageEnhanceWidget()
-	view.plugin_stack.addWidget(view._plugin_enhance)
+	# B1: Platzhalter – das echte Widget lebt im externen Fenster
+	w0 = QWidget()
+	lay0 = QVBoxLayout(w0)
+	lay0.addWidget(QLabel("Histogramm/Gamma-Fenster\nwird extern geöffnet",
+		styleSheet="color: #666; font-size: 12pt;"))
+	view.plugin_stack.addWidget(w0)
 
 	# B2–B6: Platzhalter
 	for i in range(2, 7):

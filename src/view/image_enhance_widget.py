@@ -216,3 +216,29 @@ class ImageEnhanceWidget(QWidget):
         proc = self._process(self._full_arr)
         Image.fromarray((proc * 255).astype(np.uint8), 'RGB').save(path)
         QMessageBox.information(self, "Export", f"Gespeichert:\n{path}")
+
+
+class ImageEnhanceWindow(QWidget):
+    """Standalone, movable window wrapping ImageEnhanceWidget."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint)
+        self.setWindowTitle("Histogramm / Gamma")
+        self.resize(1280, 800)
+        self._enhance = ImageEnhanceWidget(self)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._enhance)
+
+    def load_image(self, path):
+        self._enhance.load_image(path)
+
+    def show_image(self, path):
+        self.load_image(path)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def closeEvent(self, event):
+        self.hide()
+        event.accept()
