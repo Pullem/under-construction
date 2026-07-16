@@ -15,6 +15,7 @@ class VideoSource:
 		self._last_frame = -1
 		self._decoder = None
 		self._path = ""
+		self._rotation = 0
 
 	def open(self, path):
 		self.close()
@@ -24,6 +25,7 @@ class VideoSource:
 		if not streams:
 			raise ValueError("Kein Video-Stream gefunden")
 		self._video_stream = streams[0]
+		self._rotation = int(self._video_stream.metadata.get('rotate', 0)) % 360
 		self.fps = float(self._video_stream.average_rate) if self._video_stream.average_rate else 25.0
 		frames = self._video_stream.frames
 		if frames and frames > 0:
@@ -79,6 +81,8 @@ class VideoSource:
 	def _frame_to_pixmap(self, frame):
 		try:
 			pil = frame.to_image().convert("RGB")
+			if self._rotation:
+				pil = pil.rotate(self._rotation, expand=True)
 			w, h = pil.size
 			data = pil.tobytes("raw", "RGB")
 			img = QImage(data, w, h, QImage.Format.Format_RGB888)

@@ -506,8 +506,20 @@ class MainWindowMixin(QMainWindow):
 
 	def set_thumbnail(self, path):
 		if path and os.path.exists(path):
-			pix = QPixmap(path)
-			self.thumb_label.setPixmap(pix.scaled(320, 180, Qt.AspectRatioMode.KeepAspectRatio))
+			try:
+				from PIL import Image, ImageOps
+				from io import BytesIO
+				pil = ImageOps.exif_transpose(Image.open(path))
+				buf = BytesIO()
+				pil.save(buf, format="PNG")
+				buf.seek(0)
+				pix = QPixmap()
+				pix.loadFromData(buf.read())
+				self.thumb_label.setPixmap(pix.scaled(320, 180, Qt.AspectRatioMode.KeepAspectRatio))
+				return
+			except Exception:
+				pix = QPixmap(path)
+				self.thumb_label.setPixmap(pix.scaled(320, 180, Qt.AspectRatioMode.KeepAspectRatio))
 		else:
 			self.thumb_label.setText("Vorschau")
 

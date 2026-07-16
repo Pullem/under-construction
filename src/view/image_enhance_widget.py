@@ -2,7 +2,7 @@ import os
 from io import BytesIO
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 import matplotlib
 matplotlib.use('Agg')
@@ -117,7 +117,7 @@ class ImageEnhanceWidget(QWidget):
             return
         self._image_path = path
         try:
-            pil = Image.open(path).convert('RGB')
+            pil = ImageOps.exif_transpose(Image.open(path)).convert('RGB')
             arr = np.array(pil, dtype=np.float32) / 255.0
             self._full_arr = arr
 

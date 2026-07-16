@@ -164,14 +164,14 @@ class ElaWorker(QRunnable):
 
 	def run(self):
 		try:
-			from PIL import Image
+			from PIL import Image, ImageOps
 			import numpy as np
 			import matplotlib
 			matplotlib.use("Agg")
 			import matplotlib.pyplot as plt
 
 			stem = Path(self.filepath).stem
-			src = Image.open(self.filepath).convert("RGB")
+			src = ImageOps.exif_transpose(Image.open(self.filepath)).convert("RGB")
 
 			# Re-save at target quality
 			temp_jpeg = self.exports_dir / f"{stem}_ela_temp.jpg"
