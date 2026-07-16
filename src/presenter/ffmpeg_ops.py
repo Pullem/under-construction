@@ -2,12 +2,10 @@ import os
 import json
 import subprocess
 from pathlib import Path
-from datetime import datetime
-
-from PyQt6.QtCore import Qt, QProcess, QByteArray, QThreadPool
+from PyQt6.QtCore import Qt, QProcess, QThreadPool
 
 from ..model.base import BASE_DIR
-from ..worker import AnalysisWorker, FfprobeWorker, ElaWorker
+from ..worker import FfprobeWorker, ElaWorker
 
 
 class FfmpegOpsMixin:

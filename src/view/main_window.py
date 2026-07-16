@@ -9,11 +9,17 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 							 QDateEdit, QTimeEdit, QCheckBox, QComboBox, QSlider,
 							 QPlainTextEdit, QProgressBar, QGridLayout, QFileDialog,
 							 QSpinBox, QSplitter)
-from PyQt6.QtCore import pyqtSignal, Qt, QSize, QDate, QTime, QDateTime, QProcess
+from PyQt6.QtCore import pyqtSignal, Qt, QSize, QDate, QTime, QDateTime
 from PyQt6.QtGui import QPixmap, QPainter, QColor
 
 from .hex_view import HexViewWidget
 from .trim_widget import TrimWidget
+from .image_enhance_widget import ImageEnhanceWidget
+from .tab_builder import (build_case_tab, build_import_tab, build_metadata_tab,
+	build_videos_tab, build_bilder_tab, build_settings_tab,
+	build_hex_tab, build_analysis_tab, build_placeholder_tab,
+	build_plugin_content, toggle_plugin_panel, update_plugin_tab_labels,
+	active_media_prefix)
 
 # ---------------------------------------------------------
 # CUSTOM TAB BAR (flaches Design, horizontale Schrift)
@@ -100,487 +106,48 @@ class MainWindowMixin(QMainWindow):
 		self.plugin_bar.setShape(QTabBar.Shape.RoundedEast)
 		self.plugin_bar.setFixedWidth(160)
 
+		# Plugin-Inhaltsbereich (rechts neben content_stack)
+		self.plugin_stack = QStackedWidget()
+		self.plugin_stack.setVisible(False)
+
+		# Splitter: links content_stack, rechts plugin_stack
+		self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
+		self._main_splitter.addWidget(self.content_stack)
+		self._main_splitter.addWidget(self.plugin_stack)
+		self._main_splitter.setStretchFactor(0, 3)
+		self._main_splitter.setStretchFactor(1, 2)
+
 		# Tabs + Inhalt bauen
-		self._build_case_tab()
-		self._build_import_tab()
-		self._build_metadata_tab()
-		self._build_videos_tab()
-		self._build_bilder_tab()
-		self._build_hex_tab()
-		self._build_analysis_tab()
-		self._build_placeholder_tab("Export")
-		self._build_settings_tab()
+		build_case_tab(self)
+		build_import_tab(self)
+		build_metadata_tab(self)
+		build_videos_tab(self)
+		build_bilder_tab(self)
+		build_hex_tab(self)
+		build_analysis_tab(self)
+		build_placeholder_tab(self, "Export")
+		build_settings_tab(self)
 
 		# Plugin-Tabs rechts
 		for i in range(1, 7):
 			self.plugin_bar.addTab(f"Plugin {i}")
+		build_plugin_content(self)
 
 		# Navigation verknüpfen
 		self.nav_bar.currentChanged.connect(self.content_stack.setCurrentIndex)
-		self.content_stack.currentChanged.connect(self._update_plugin_tab_labels)
+		self.content_stack.currentChanged.connect(lambda i: update_plugin_tab_labels(self, i))
+		self.content_stack.currentChanged.connect(lambda i: toggle_plugin_panel(self, i))
+		self.plugin_bar.currentChanged.connect(self.plugin_stack.setCurrentIndex)
 
 		self._refresh_timezone()
 
 		main_layout.addWidget(self.nav_bar)
-		main_layout.addWidget(self.content_stack, 1)
+		main_layout.addWidget(self._main_splitter, 1)
 		main_layout.addWidget(self.plugin_bar)
 
-		# Initialen Label-Status setzen
-		self._update_plugin_tab_labels(0)
-
-	def _update_plugin_tab_labels(self, index):
-		prefix = "V" if index == 3 else "B" if index == 4 else ""
-		for i in range(6):
-			self.plugin_bar.setTabText(i, f"Plugin {prefix}{i + 1}")
-
-	def _build_case_tab(self):
-		widget = QWidget()
-		layout = QVBoxLayout(widget)
-
-		title = QLabel("<b>Fallübersicht</b>")
-		layout.addWidget(title)
-
-		self.lbl_case_name = QLabel("Aktueller Fall: —")
-		layout.addWidget(self.lbl_case_name)
-
-		layout.addSpacing(20)
-		layout.addWidget(QLabel("<b>Fallneuanlage</b>"))
-
-		self.txt_case_name = QLineEdit()
-		self.txt_case_name.setPlaceholderText("Fallname")
-		layout.addWidget(self.txt_case_name)
-
-		self.txt_case_desc = QTextEdit()
-		self.txt_case_desc.setPlaceholderText("Beschreibung")
-		self.txt_case_desc.setMaximumHeight(80)
-		layout.addWidget(self.txt_case_desc)
-
-		# ---- Tatzeit ----
-		tatzeit_layout = QHBoxLayout()
-		tatzeit_layout.addWidget(QLabel("Tatzeit:"))
-		first_of_month = QDate.currentDate().addDays(-QDate.currentDate().day() + 1)
-		self.d_incident = QDateEdit(first_of_month)
-		self.d_incident.setCalendarPopup(True)
-		self.d_incident.setDisplayFormat("dd.MM.yyyy")
-		tatzeit_layout.addWidget(self.d_incident)
-		self.t_incident = QTimeEdit(QTime(0, 0))
-		self.t_incident.setDisplayFormat("HH:mm")
-		tatzeit_layout.addWidget(self.t_incident)
-		self.chk_bis = QCheckBox("Bis:")
-		self.chk_bis.toggled.connect(self._on_bis_toggled)
-		tatzeit_layout.addWidget(self.chk_bis)
-		self.d_incident_until = QDateEdit(first_of_month)
-		self.d_incident_until.setCalendarPopup(True)
-		self.d_incident_until.setDisplayFormat("dd.MM.yyyy")
-		self.d_incident_until.setVisible(False)
-		tatzeit_layout.addWidget(self.d_incident_until)
-		self.t_incident_until = QTimeEdit(QTime(0, 0))
-		self.t_incident_until.setDisplayFormat("HH:mm")
-		self.t_incident_until.setVisible(False)
-		tatzeit_layout.addWidget(self.t_incident_until)
-		tatzeit_layout.addStretch()
-		layout.addLayout(tatzeit_layout)
-
-		btn_create = QPushButton("Fall erstellen")
-		btn_create.clicked.connect(self._on_create_case)
-		layout.addWidget(btn_create)
-
-		layout.addSpacing(20)
-		layout.addWidget(QLabel("<b>Fallexplorer</b>"))
-
-		self.case_list = QListWidget()
-		self.case_list.itemDoubleClicked.connect(self._on_case_selected)
-		layout.addWidget(self.case_list, 1)
-
-		btn_open = QPushButton("Ausgewählten Fall öffnen")
-		btn_open.clicked.connect(self._on_case_selected)
-		layout.addWidget(btn_open)
-
-		self.nav_bar.addTab("Fallübersicht")
-		self.content_stack.addWidget(widget)
-
-	def _build_import_tab(self):
-		widget = QWidget()
-		layout = QVBoxLayout(widget)
-
-		layout.addWidget(QLabel("<b>Medien Import</b>"))
-		layout.addSpacing(10)
-		layout.addWidget(QLabel("Importieren Sie Videodateien und Fotos\nmit Lieferantenangaben in den aktuellen Fall."))
-		layout.addSpacing(10)
-
-		btn_import = QPushButton("Import-Dialog öffnen")
-		btn_import.setMinimumHeight(80)
-		btn_import.clicked.connect(self.import_media_requested.emit)
-		layout.addWidget(btn_import)
-
-		layout.addStretch()
-
-		self.nav_bar.addTab("Import")
-		self.content_stack.addWidget(widget)
-
-	def _build_metadata_tab(self):
-		widget = QWidget()
-		layout = QHBoxLayout(widget)
-
-		left = QVBoxLayout()
-		self.search_bar = QLineEdit()
-		self.search_bar.setPlaceholderText("Dateiliste filtern...")
-		self.search_bar.setClearButtonEnabled(True)
-		self.file_list = QListWidget()
-		self.btn_scan = QPushButton("Watchfolder scannen")
-		self.btn_scan.setToolTip("Scannt den Eingabeordner nach Mediendateien")
-
-		left.addWidget(QLabel("Mediendateien"))
-		left.addWidget(self.search_bar)
-		left.addWidget(self.file_list, 1)
-		left.addWidget(self.btn_scan)
-
-		right = QVBoxLayout()
-		self.thumb_label = QLabel("Vorschau")
-		self.thumb_label.setFixedSize(320, 180)
-		self.thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-		self.thumb_label.setStyleSheet("border: 2px solid #333; background: black;")
-
-		self.tabs = QTabWidget()
-		self.tabs.setDocumentMode(True)
-
-		right.addWidget(self.thumb_label, alignment=Qt.AlignmentFlag.AlignCenter)
-		self.meta_search_bar = QLineEdit()
-		self.meta_search_bar.setPlaceholderText("In Metadaten suchen...")
-		self.meta_search_bar.setClearButtonEnabled(True)
-		right.addWidget(self.meta_search_bar)
-		right.addWidget(self.tabs, 1)
-
-		layout.addLayout(left, 1)
-		layout.addLayout(right, 3)
-
-		self.btn_scan.clicked.connect(self.scan_requested.emit)
-		self.search_bar.textChanged.connect(self.search_changed.emit)
-		self.meta_search_bar.textChanged.connect(self._on_meta_search)
-		self.file_list.itemClicked.connect(
-			lambda item: self.file_selected.emit(item.text())
-		)
-
-		self.nav_bar.addTab("Metadaten")
-		self.content_stack.addWidget(widget)
-
-	def _build_media_tab(self, name, prefix, is_video):
-		"""Build a combined analysis + processing tab.
-
-		Args:
-			name: Display name ("Videos" or "Bilder")
-			prefix: Widget name prefix ("video" or "bild")
-			is_video: True for full video features, False for image-only
-		"""
-		widget = QWidget()
-		layout = QVBoxLayout(widget)
-
-		layout.addWidget(QLabel(f"<b>{name}</b>"))
-		layout.addSpacing(8)
-
-		# Dateiauswahl (beide Tabs)
-		file_layout = QHBoxLayout()
-		file_layout.addWidget(QLabel("Datei:"))
-		file_label = QLabel("–")
-		file_label.setStyleSheet("color: #aaa;")
-		setattr(self, f"{prefix}_file_label", file_label)
-		file_layout.addWidget(file_label, 1)
-		setattr(self, f"{prefix}_input_path", "")
-		btn_browse = QPushButton("Durchsuchen")
-		btn_browse.clicked.connect(self._on_ffmpeg_browse)
-		setattr(self, f"{prefix}_btn_browse", btn_browse)
-		file_layout.addWidget(btn_browse)
-		layout.addLayout(file_layout)
-
-		# Preset-Buttons (nur Videos)
-		if is_video:
-			layout.addWidget(QLabel("Presets:"))
-			preset_grid = QGridLayout()
-			presets = [
-				(0, 0, "Trim", self._ffmpeg_preset_trim),
-				(0, 1, "Frames", self._ffmpeg_preset_frames),
-				(0, 2, "Audio", self._ffmpeg_preset_audio),
-				(0, 3, "Timecode", self._ffmpeg_preset_timecode),
-				(1, 0, "Container", self._ffmpeg_preset_container),
-				(1, 1, "Hash", self._ffmpeg_preset_hash),
-				(1, 2, "Custom", self._ffmpeg_preset_custom),
-				(1, 3, "Bitstream", self._ffmpeg_preset_bitstream),
-			]
-			for row, col, title, cb in presets:
-				btn = QPushButton(title)
-				btn.clicked.connect(cb)
-				preset_grid.addWidget(btn, row, col)
-			layout.addLayout(preset_grid)
-
-		# Parameter (nur Videos)
-		if is_video:
-			params_group = QWidget()
-			params_group.setStyleSheet("QWidget#ffmpeg_params { border: 1px solid #444; padding: 6px; }")
-			params_group.setObjectName("ffmpeg_params")
-			param_layout = QHBoxLayout(params_group)
-
-			param_layout.addWidget(QLabel("Start:"))
-			start = QTimeEdit(QTime(0, 0))
-			start.setDisplayFormat("HH:mm:ss")
-			setattr(self, f"{prefix}_start", start)
-			param_layout.addWidget(start)
-
-			param_layout.addWidget(QLabel("Ende:"))
-			end = QTimeEdit(QTime(0, 0))
-			end.setDisplayFormat("HH:mm:ss")
-			end.setSpecialValueText("–")
-			end.clear()
-			setattr(self, f"{prefix}_end", end)
-			param_layout.addWidget(end)
-
-			param_layout.addWidget(QLabel("Format:"))
-			fmt_combo = QComboBox()
-			fmt_combo.addItem("FFV1 (lossless)", "ffv1")
-			fmt_combo.addItem("H.264 CRF 18", "h264_crf18")
-			fmt_combo.addItem("H.264 CRF 10", "h264_crf10")
-			setattr(self, f"{prefix}_format", fmt_combo)
-			param_layout.addWidget(fmt_combo)
-
-			param_layout.addWidget(QLabel("Filter:"))
-			filter_edit = QLineEdit()
-			filter_edit.setPlaceholderText("z.B. scale=1280:720,eq=brightness=0.2")
-			setattr(self, f"{prefix}_filter", filter_edit)
-			param_layout.addWidget(filter_edit, 1)
-
-			layout.addWidget(params_group)
-			setattr(self, f"{prefix}_params_group", params_group)
-
-		# Lossless Trim Widget (nur Videos, initial versteckt)
-		if is_video:
-			trim_widget = TrimWidget()
-			trim_widget.setVisible(False)
-			setattr(self, f"{prefix}_trim_widget", trim_widget)
-			layout.addWidget(trim_widget)
-
-		# Encoded date / time info + UTC-Offset (nur Videos)
-		if is_video:
-			date_layout = QHBoxLayout()
-			date_layout.addWidget(QLabel("encoded:"))
-			encoded_label = QLabel("–")
-			encoded_label.setStyleSheet("color: #888;")
-			setattr(self, f"{prefix}_encoded_label", encoded_label)
-			date_layout.addWidget(encoded_label)
-			utc_combo = QComboBox()
-			utc_combo.addItem("UTC+1", 1)
-			utc_combo.addItem("UTC+2", 2)
-			setattr(self, f"{prefix}_utc_combo", utc_combo)
-			date_layout.addWidget(utc_combo)
-			date_layout.addSpacing(20)
-			date_layout.addWidget(QLabel("TC-Pos:"))
-			tc_pos = QComboBox()
-			tc_pos.addItem("oben", "10")
-			tc_pos.addItem("unten", "main_h-text_h-10")
-			setattr(self, f"{prefix}_tc_pos", tc_pos)
-			date_layout.addWidget(tc_pos)
-			date_layout.addStretch()
-			layout.addLayout(date_layout)
-
-		# ffprobe-Analyse-Buttons + Ergebnis (links im Splitter)
-		splitter = QSplitter(Qt.Orientation.Horizontal)
-
-		left_widget = QWidget()
-		left_layout = QVBoxLayout(left_widget)
-		left_layout.setContentsMargins(0, 0, 4, 0)
-		left_layout.addWidget(QLabel("<b>Analysen</b>"))
-
-		if is_video:
-			analyses = [
-				("streams", "Stream-Übersicht"),
-				("pts_dts", "PTS/DTS-Check"),
-				("frame_dist", "Frame-Verteilung"),
-				("freeze", "Freeze-Detect"),
-				("blackdetect", "Black-Detect"),
-				("scenedetect", "Scene-Detect"),
-				("silencedetect", "Silence-Detect"),
-				("bitrate", "Bitrate-Check"),
-				("quickcheck", "Quick-Check"),
-			]
-		else:
-			analyses = [
-				("streams", "Stream-Übersicht"),
-				("blackdetect", "Black-Detect"),
-				("quickcheck", "Quick-Check"),
-				("ela", "ELA-Analyse"),
-			]
-
-		analysis_toolbar = QHBoxLayout()
-		for mode, title in analyses:
-			btn = QPushButton(title)
-			if mode == "quickcheck":
-				btn.setStyleSheet("background-color: #2a6d2a; color: white; font-weight: bold;")
-			btn.clicked.connect(lambda checked, m=mode: self._on_ffprobe_analyse(m))
-			setattr(self, f"{prefix}_btn_{mode}", btn)
-			analysis_toolbar.addWidget(btn)
-		left_layout.addLayout(analysis_toolbar)
-
-		analysis_result = QPlainTextEdit()
-		analysis_result.setReadOnly(True)
-		analysis_result.setStyleSheet("background: #111; color: #0f0; font-family: Consolas; font-size: 9pt;")
-		setattr(self, f"{prefix}_result", analysis_result)
-		left_layout.addWidget(analysis_result, 3)
-
-		splitter.addWidget(left_widget)
-
-		# Rechte Seite: ffmpeg-Controls (Videos) oder ELA-Vorschau (Bilder)
-		if is_video:
-			right_widget = QWidget()
-			right_layout = QVBoxLayout(right_widget)
-			right_layout.setContentsMargins(4, 0, 0, 0)
-
-			run_layout = QHBoxLayout()
-			btn_run = QPushButton("▶ Ausführen")
-			btn_run.setMinimumHeight(36)
-			btn_run.clicked.connect(self._on_ffmpeg_run)
-			setattr(self, f"{prefix}_btn_run", btn_run)
-			run_layout.addWidget(btn_run)
-
-			btn_abort = QPushButton("✕ Abbrechen")
-			btn_abort.setMinimumHeight(36)
-			btn_abort.setEnabled(False)
-			btn_abort.clicked.connect(self._on_ffmpeg_abort)
-			btn_abort.setStyleSheet("color: #ff6666;")
-			setattr(self, f"{prefix}_btn_abort", btn_abort)
-			run_layout.addWidget(btn_abort)
-
-			run_layout.addStretch()
-			out_label = QLabel("")
-			setattr(self, f"{prefix}_out_label", out_label)
-			run_layout.addWidget(out_label)
-			right_layout.addLayout(run_layout)
-
-			ffmpeg_log = QPlainTextEdit()
-			ffmpeg_log.setReadOnly(True)
-			ffmpeg_log.setMaximumBlockCount(1000)
-			ffmpeg_log.setStyleSheet("background: #111; color: #0f0; font-family: Consolas; font-size: 9pt;")
-			setattr(self, f"{prefix}_log", ffmpeg_log)
-			right_layout.addWidget(ffmpeg_log, 1)
-
-			progress = QProgressBar()
-			progress.setTextVisible(True)
-			setattr(self, f"{prefix}_progress", progress)
-			right_layout.addWidget(progress)
-
-			splitter.addWidget(right_widget)
-			splitter.setStretchFactor(0, 1)
-			splitter.setStretchFactor(1, 2)
-		else:
-			right_widget = QWidget()
-			right_layout = QVBoxLayout(right_widget)
-			right_layout.setContentsMargins(4, 0, 0, 0)
-
-			error_map_view = QLabel()
-			error_map_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-			error_map_view.setStyleSheet("border: 1px solid #444; background: #111; color: #666;")
-			error_map_view.setText("ELA-Error-Map")
-			error_map_view.setVisible(False)
-			setattr(self, f"{prefix}_error_map_view", error_map_view)
-			right_layout.addWidget(error_map_view, 1)
-
-			hist_view = QLabel()
-			hist_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-			hist_view.setStyleSheet("border: 1px solid #444; background: #111; color: #666;")
-			hist_view.setText("ELA-Histogram")
-			hist_view.setVisible(False)
-			setattr(self, f"{prefix}_histogram_view", hist_view)
-			right_layout.addWidget(hist_view, 1)
-
-			splitter.addWidget(right_widget)
-			splitter.setStretchFactor(0, 1)
-			splitter.setStretchFactor(1, 2)
-
-		layout.addWidget(splitter, 1)
-
-		self.nav_bar.addTab(name)
-		self.content_stack.addWidget(widget)
-
-	def _build_videos_tab(self):
-		self._build_media_tab("Videos", "video", True)
-
-	def _build_bilder_tab(self):
-		self._build_media_tab("Bilder", "bild", False)
-
-	def _active_media_prefix(self):
-		idx = self.nav_bar.currentIndex()
-		if idx == 3:   # Videos
-			return "video"
-		elif idx == 4: # Bilder
-			return "bild"
-		return "video"
-
-	def _show_trim_widget(self):
-		self.video_params_group.setVisible(False)
-		self.video_trim_widget.setVisible(True)
-
-	def _hide_trim_widget(self):
-		prefix = self._active_media_prefix()
-		tw = getattr(self, f"{prefix}_trim_widget", None)
-		if tw:
-			tw.setVisible(False)
-		pg = getattr(self, f"{prefix}_params_group", None)
-		if pg:
-			pg.setVisible(True)
-
-	def _ffmpeg_preset_trim(self):
-		self._show_trim_widget()
-
-	def _ffmpeg_preset_frames(self):
-		self._hide_trim_widget()
-		w = lambda n: getattr(self, f"video_{n}")
-		w("filter").setText("fps=1/10")
-		w("format").setCurrentIndex(0)
-		w("end").clear()
-
-	def _ffmpeg_preset_audio(self):
-		self._hide_trim_widget()
-		w = lambda n: getattr(self, f"video_{n}")
-		w("filter").clear()
-		w("format").setCurrentIndex(0)
-		w("start").setTime(QTime(0, 0))
-		w("end").clear()
-
-	def _ffmpeg_preset_timecode(self):
-		self._hide_trim_widget()
-		w = lambda n: getattr(self, f"video_{n}")
-		w("filter").setText(
-			"drawtext=timecode='00\\:00\\:00\\:00':rate=25:fontsize=40:fontcolor=white:box=1:boxcolor=black@1:x=10:y=__POSITION__,"
-			"drawtext=timecode='__REALTIME__':rate=25:fontsize=40:fontcolor=white:box=1:boxcolor=black@1:x=main_w-text_w-10:y=__POSITION__"
-		)
-		w("format").setCurrentIndex(0)
-		w("start").setTime(QTime(0, 0))
-		w("end").clear()
-
-	def _ffmpeg_preset_container(self):
-		self._hide_trim_widget()
-		p = self._active_media_prefix()
-		w = lambda n: getattr(self, f"{p}_{n}")
-		w("filter").clear()
-		w("format").setCurrentIndex(0)
-		if p == "video":
-			w("start").setTime(QTime(0, 0))
-			w("end").clear()
-
-	def _ffmpeg_preset_hash(self):
-		self._hide_trim_widget()
-		p = self._active_media_prefix()
-		w = lambda n: getattr(self, f"{p}_{n}")
-		w("filter").setText("-f framehash -")
-		w("format").setCurrentIndex(0)
-		if p == "video":
-			w("start").setTime(QTime(0, 0))
-			w("end").clear()
-
-	def _ffmpeg_preset_custom(self):
-		self._hide_trim_widget()
-
-	def _ffmpeg_preset_bitstream(self):
-		self._hide_trim_widget()
-		w = lambda n: getattr(self, f"video_{n}")
-		w("filter").setText("__BITSTREAM__")
+		# Initialen Status setzen
+		update_plugin_tab_labels(self, 0)
+		toggle_plugin_panel(self, 0)
 
 	def _on_ffmpeg_run(self):
 		inp = self.ffmpeg_input_path
@@ -588,7 +155,7 @@ class MainWindowMixin(QMainWindow):
 			QMessageBox.warning(self, "Keine Datei", "Bitte zuerst eine Datei auswählen.")
 			return
 
-		prefix = self._active_media_prefix()
+		prefix = active_media_prefix(self)
 		w = lambda n: getattr(self, f"{prefix}_{n}")
 
 		# Lossless Trim via TrimWidget (nur Videos)
@@ -673,6 +240,11 @@ class MainWindowMixin(QMainWindow):
 				self.video_trim_widget.load_file(path)
 		except Exception as e:
 			print(f"trim_widget.load_file fehlgeschlagen: {e}")
+		try:
+			if hasattr(self, "_plugin_enhance"):
+				self._plugin_enhance.load_image(path)
+		except Exception as e:
+			print(f"plugin_enhance.load_image fehlgeschlagen: {e}")
 
 	def _update_ffmpeg_encoded_date(self, path):
 		label = None
@@ -728,96 +300,13 @@ class MainWindowMixin(QMainWindow):
 		if not path:
 			QMessageBox.warning(self, "Keine Datei", "Bitte zuerst eine Datei auswählen.")
 			return
-		prefix = self._active_media_prefix()
+		prefix = active_media_prefix(self)
 		getattr(self, f"{prefix}_result").clear()
 		self.ffprobe_analyse_requested.emit(path, mode, prefix)
 
 	def _on_meta_search(self, query):
 		if hasattr(self, "search_metadata_tables"):
 			self.search_metadata_tables(query)
-
-	def _build_settings_tab(self):
-		widget = QWidget()
-		layout = QVBoxLayout(widget)
-
-		layout.addWidget(QLabel("<b>Einstellungen</b>"))
-		layout.addSpacing(20)
-
-		layout.addWidget(QLabel("Datenbank-Benutzer:"))
-		self.lbl_db_user = QLabel("—")
-		self.lbl_db_user.setStyleSheet("background-color: #2d2d2d; color: #ccc; padding: 6px; border: 1px solid #444;")
-		layout.addWidget(self.lbl_db_user)
-
-		layout.addWidget(QLabel("Datenbank-Passwort:"))
-		pw_layout = QHBoxLayout()
-		self.lbl_db_password = QLabel("—")
-		self.lbl_db_password.setStyleSheet("background-color: #2d2d2d; color: #ccc; padding: 6px; border: 1px solid #444;")
-		self.lbl_db_password.setMinimumWidth(200)
-		self.lbl_db_password.setWordWrap(True)
-		pw_layout.addWidget(self.lbl_db_password, 1)
-		self._pw_visible = False
-		self.btn_toggle_pw = QPushButton("\U0001F441")
-		self.btn_toggle_pw.setFixedWidth(36)
-		self.btn_toggle_pw.setCheckable(True)
-		self.btn_toggle_pw.toggled.connect(self._toggle_password_visible)
-		pw_layout.addWidget(self.btn_toggle_pw)
-		layout.addLayout(pw_layout)
-
-		layout.addWidget(QLabel("MariaDB-Root-Passwort:"))
-		root_pw_layout = QHBoxLayout()
-		self.lbl_root_password = QLabel("—")
-		self.lbl_root_password.setStyleSheet("background-color: #2d2d2d; color: #ccc; padding: 6px; border: 1px solid #444;")
-		self.lbl_root_password.setMinimumWidth(200)
-		self.lbl_root_password.setWordWrap(True)
-		root_pw_layout.addWidget(self.lbl_root_password, 1)
-		self._root_pw_visible = False
-		self.btn_toggle_root_pw = QPushButton("\U0001F441")
-		self.btn_toggle_root_pw.setFixedWidth(36)
-		self.btn_toggle_root_pw.setCheckable(True)
-		self.btn_toggle_root_pw.toggled.connect(self._toggle_root_pw_visible)
-		root_pw_layout.addWidget(self.btn_toggle_root_pw)
-		layout.addLayout(root_pw_layout)
-
-		layout.addSpacing(10)
-		layout.addWidget(QLabel("Neues Datenbank-Passwort festlegen (optional):"))
-		new_pw_layout = QHBoxLayout()
-		self.txt_new_db_password = QLineEdit()
-		self.txt_new_db_password.setEchoMode(QLineEdit.EchoMode.Password)
-		self.txt_new_db_password.setPlaceholderText("leer lassen = kein Update")
-		new_pw_layout.addWidget(self.txt_new_db_password)
-		self.btn_toggle_new_pw = QPushButton("\U0001F441")
-		self.btn_toggle_new_pw.setFixedWidth(36)
-		self.btn_toggle_new_pw.setCheckable(True)
-		self.btn_toggle_new_pw.toggled.connect(self._toggle_new_pw_visible)
-		new_pw_layout.addWidget(self.btn_toggle_new_pw)
-		layout.addLayout(new_pw_layout)
-
-		layout.addSpacing(20)
-		layout.addWidget(QLabel("Basisordner für neue Fälle:"))
-		folder_layout = QHBoxLayout()
-		self.txt_case_root = QLineEdit()
-		folder_layout.addWidget(self.txt_case_root)
-		btn_browse = QPushButton("…")
-		btn_browse.setFixedWidth(40)
-		btn_browse.clicked.connect(self._on_browse_case_root)
-		folder_layout.addWidget(btn_browse)
-		layout.addLayout(folder_layout)
-
-		layout.addSpacing(15)
-		layout.addWidget(QLabel("<b>Zeitzone (automatisch erkannt)</b>"))
-		self.lbl_tz_info = QLabel("–")
-		self.lbl_tz_info.setStyleSheet("color: #8f8; font-weight: bold; padding-left: 8px;")
-		layout.addWidget(self.lbl_tz_info)
-
-		layout.addSpacing(10)
-		btn_save = QPushButton("Einstellungen speichern")
-		btn_save.clicked.connect(self._on_save_settings)
-		layout.addWidget(btn_save)
-
-		layout.addStretch()
-
-		self.nav_bar.addTab("Einstellungen")
-		self.content_stack.addWidget(widget)
 
 	def _refresh_settings_display(self, db_user, db_password, case_root, root_password=""):
 		self.lbl_db_user.setText(db_user or "—")
@@ -871,84 +360,6 @@ class MainWindowMixin(QMainWindow):
 			self.update_db_password_requested.emit(new_pw)
 		self.save_settings_requested.emit(case_root)
 
-	def _build_hex_tab(self):
-		widget = QWidget()
-		layout = QVBoxLayout(widget)
-
-		layout.addWidget(QLabel("<b>Hex-Viewer</b>"))
-		layout.addSpacing(8)
-
-		# Toolbar Zeile 1: Datei + Schrift + Offset
-		toolbar = QHBoxLayout()
-		self.hex_file_label = QLabel("–")
-		self.hex_file_label.setStyleSheet("color: #aaa;")
-		toolbar.addWidget(self.hex_file_label, 1)
-
-		toolbar.addWidget(QLabel("Schrift:"))
-		self.hex_font_spin = QSpinBox()
-		self.hex_font_spin.setRange(6, 24)
-		self.hex_font_spin.setValue(9)
-		self.hex_font_spin.setFixedWidth(50)
-		self.hex_font_spin.valueChanged.connect(self._on_hex_font_size)
-		toolbar.addWidget(self.hex_font_spin)
-
-		self.hex_open_btn = QPushButton("Öffnen")
-		self.hex_open_btn.clicked.connect(self._on_hex_open)
-		toolbar.addWidget(self.hex_open_btn)
-
-		self.hex_goto_input = QLineEdit()
-		self.hex_goto_input.setPlaceholderText("Offset (hex)")
-		self.hex_goto_input.setFixedWidth(110)
-		toolbar.addWidget(self.hex_goto_input)
-
-		self.hex_goto_btn = QPushButton("Gehe zu")
-		self.hex_goto_btn.clicked.connect(self._on_hex_goto)
-		toolbar.addWidget(self.hex_goto_btn)
-
-		layout.addLayout(toolbar)
-
-		# Toolbar Zeile 2: Suche
-		search_bar = QHBoxLayout()
-		search_bar.addWidget(QLabel("Suche:"))
-		self.hex_search_input = QLineEdit()
-		self.hex_search_input.setPlaceholderText("Hex (z.B. 00FF) / ASCII / Text")
-		self.hex_search_input.returnPressed.connect(self._on_hex_search)
-		search_bar.addWidget(self.hex_search_input, 1)
-		self.hex_search_mode = QComboBox()
-		self.hex_search_mode.addItem("Hex", "hex")
-		self.hex_search_mode.addItem("ASCII", "ascii")
-		self.hex_search_mode.addItem("Text", "text")
-		self.hex_search_mode.setFixedWidth(80)
-		search_bar.addWidget(self.hex_search_mode)
-		self.hex_search_btn = QPushButton("Suchen")
-		self.hex_search_btn.clicked.connect(self._on_hex_search)
-		search_bar.addWidget(self.hex_search_btn)
-		self.hex_search_prev = QPushButton("▲")
-		self.hex_search_prev.setFixedWidth(30)
-		self.hex_search_prev.clicked.connect(self._on_hex_search_prev)
-		search_bar.addWidget(self.hex_search_prev)
-		self.hex_search_next = QPushButton("▼")
-		self.hex_search_next.setFixedWidth(30)
-		self.hex_search_next.clicked.connect(self._on_hex_search_next)
-		search_bar.addWidget(self.hex_search_next)
-		self.hex_search_status = QLabel("")
-		self.hex_search_status.setStyleSheet("color: #888;")
-		search_bar.addWidget(self.hex_search_status)
-		search_bar.addStretch()
-		layout.addLayout(search_bar)
-
-		self.hex_viewer = HexViewWidget()
-		self.hex_viewer.setStyleSheet("border: 1px solid #333;")
-		self.hex_viewer.search_moved.connect(self._on_hex_search_moved)
-		layout.addWidget(self.hex_viewer, 1)
-
-		self.hex_status = QLabel("–")
-		self.hex_status.setStyleSheet("color: #888;")
-		layout.addWidget(self.hex_status)
-
-		self.nav_bar.addTab("Hex-Viewer")
-		self.content_stack.addWidget(widget)
-
 	def _on_hex_open(self):
 		path, _ = QFileDialog.getOpenFileName(
 			self, "Datei öffnen", "",
@@ -989,62 +400,6 @@ class MainWindowMixin(QMainWindow):
 			self.hex_status.setText(f"Datei: {path}  |  Größe: {size:,} Bytes  |  Zeilen: {self.hex_viewer._total_lines:,}")
 		else:
 			self.hex_status.setText("–")
-
-	def _build_analysis_tab(self):
-		widget = QWidget()
-		layout = QVBoxLayout(widget)
-
-		layout.addWidget(QLabel("<b>Auswertung</b>"))
-		layout.addSpacing(10)
-
-		toolbar = QHBoxLayout()
-		btn_timeline = QPushButton("Zeitachsen-Analyse")
-		btn_timeline.clicked.connect(self.open_timeline_requested.emit)
-		toolbar.addWidget(btn_timeline)
-
-		toolbar.addStretch()
-
-		toolbar.addWidget(QLabel("Zoom:"))
-		self.slider_zoom = QSlider(Qt.Orientation.Horizontal)
-		self.slider_zoom.setRange(25, 400)
-		self.slider_zoom.setValue(100)
-		self.slider_zoom.setFixedWidth(120)
-		self.slider_zoom.setTickPosition(QSlider.TickPosition.TicksBelow)
-		self.slider_zoom.setTickInterval(75)
-		self.slider_zoom.valueChanged.connect(self.open_timeline_requested.emit)
-		toolbar.addWidget(self.slider_zoom)
-		self.lbl_zoom = QLabel("100%")
-		self.slider_zoom.valueChanged.connect(lambda v: self.lbl_zoom.setText(f"{v}%"))
-		toolbar.addWidget(self.lbl_zoom)
-
-		toolbar.addStretch()
-
-		toolbar.addWidget(QLabel("Offset:"))
-		self.cbo_offset = QComboBox()
-		self.cbo_offset.addItem("Winter UTC+1", 1)
-		self.cbo_offset.addItem("Sommer UTC+2", 2)
-		self.cbo_offset.currentIndexChanged.connect(self.open_timeline_requested.emit)
-		toolbar.addWidget(self.cbo_offset)
-
-		layout.addLayout(toolbar)
-
-		from ..timeline_window import TimelineWidget
-		self.timeline_widget = TimelineWidget()
-		layout.addWidget(self.timeline_widget, 1)
-
-		self.nav_bar.addTab("Auswertung")
-		self.content_stack.addWidget(widget)
-
-		self._is_analysis_built = True
-
-	def _build_placeholder_tab(self, title):
-		widget = QWidget()
-		layout = QVBoxLayout(widget)
-		label = QLabel(f"{title}\n\nNoch nicht implementiert")
-		label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-		layout.addWidget(label)
-		self.nav_bar.addTab(title)
-		self.content_stack.addWidget(widget)
 
 	@staticmethod
 	def _get_current_utc_offset():
