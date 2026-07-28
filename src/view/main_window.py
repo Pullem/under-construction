@@ -85,6 +85,7 @@ class MainWindowMixin(QMainWindow):
 		self._raw_root_password = ""
 		self._root_pw_visible = False
 		self._is_analysis_built = False
+		self._case_path = ""
 
 	def setup_ui(self):
 		central = QWidget()
@@ -223,7 +224,7 @@ class MainWindowMixin(QMainWindow):
 		else:
 			filter_str = "Bild (*.jpg *.jpeg *.png *.tif *.tiff *.bmp)"
 		path, _ = QFileDialog.getOpenFileName(
-			self, "Mediendatei auswählen", "", filter_str
+			self, "Mediendatei auswählen", self._case_path, filter_str
 		)
 		if path:
 			self.set_ffmpeg_file(path)
@@ -463,6 +464,9 @@ class MainWindowMixin(QMainWindow):
 
 	def set_case_name(self, name):
 		self.lbl_case_name.setText(f"Aktueller Fall: {name}")
+
+	def set_case_path(self, path):
+		self._case_path = path
 
 	def apply_dark_style(self):
 		style = """

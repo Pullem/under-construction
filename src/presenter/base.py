@@ -70,6 +70,7 @@ class PresenterBase:
 		self.case_path = model.current_case_path
 		if self.case_path:
 			self._init_case_paths()
+			self.view.set_case_path(str(self.case_path))
 			case_name = self.model.current_case.get("project_name", "Unbekannter Fall")
 			self.view.setWindowTitle(f"Forensic Analyzer – {case_name}")
 			self.view.set_case_name(case_name)
@@ -134,6 +135,7 @@ class PresenterBase:
 		case = self.model.load_case(case_id)
 		if case:
 			self._init_case_paths()
+			self.view.set_case_path(str(self.case_path))
 			case_name = case.get("project_name", "Unbekannter Fall")
 			self.view.setWindowTitle(f"Forensic Analyzer – {case_name}")
 			self.view.set_case_name(case_name)
@@ -150,6 +152,7 @@ class PresenterBase:
 				return
 			case_id = self.model.create_case(name, desc, incident_at, incident_until)
 			self._init_case_paths()
+			self.view.set_case_path(str(self.case_path))
 			self.view.set_case_name(name)
 			self.view.setWindowTitle(f"Forensic Analyzer – {name}")
 			self.refresh_ui_list()
@@ -197,7 +200,6 @@ class PresenterBase:
 				media_files = cur.fetchall() or []
 			finally:
 				conn.close()
-		import json
 		for f in media_files:
 			for col in ("metadata", "exif_metadata"):
 				if isinstance(f.get(col), str):
@@ -212,52 +214,29 @@ class PresenterBase:
 			zoom = 100
 			if hasattr(self.view, 'slider_zoom'):
 				zoom = self.view.slider_zoom.value()
-			thumb_dir = self.model.current_case_path / "thumbnails" if self.model.current_case_path else None
-			# Thumbnails extrahieren für Videos und Fotos
+
+			# Zuerst Timeline ohne Thumbnails anzeigen (schnell)
 			for f in media_files:
-				fname = f.get("file_name", "")
-				meta = f.get("metadata", {})
-				fpath = f.get("file_path", "")
-				if not fpath or not os.path.exists(fpath):
-					continue
-				mtype = _guess_media_type(fname)
-				if mtype == "Video":
-					general = meta.get("General", {})
-					dur_str = general.get("duration", "0")
-					try:
-						dur = float(dur_str)
-					except (ValueError, TypeError):
-						dur = 0
-					# MediaInfo: duration in Millisekunden -> Sekunden
-					dur_sec = dur / 1000.0
-					if dur_sec > 0 and thumb_dir:
-						if dur_sec <= 60:
-							interval = 2
-						elif dur_sec <= 300:
-							interval = 10
-						elif dur_sec <= 3600:
-							interval = 30
-						else:
-							interval = 60
-						thumbnails = self.model.extract_thumbnails(fpath, interval, thumb_dir)
-						f["_thumbnails"] = thumbnails
-					else:
-						f["_thumbnails"] = []
-					f["_duration_sec"] = dur_sec
-				elif mtype == "Foto":
-					# Einzel-Thumbnail für Fotos über vorhandene Methode
-					thumb_path = self.model.get_thumbnail(fpath)
-					if thumb_path and os.path.exists(thumb_path):
-						f["_thumbnails"] = [{"time_sec": 0, "path": thumb_path}]
-					else:
-						f["_thumbnails"] = []
-					f["_duration_sec"] = 0
-				else:
-					f["_thumbnails"] = []
-					f["_duration_sec"] = 0
+				f["_thumbnails"] = []
+				f["_duration_sec"] = 0
 			self.view.timeline_widget.refresh(media_files, self.model.current_case,
 											 offset_hours=offset, zoom_pct=zoom)
+
+			# Thumbnails asynchron im Worker-Thread extrahieren
+			thumb_dir = self.model.current_case_path / "thumbnails" if self.model.current_case_path else None
+			if thumb_dir and media_files:
+				from ..worker import ThumbnailWorker
+				worker = ThumbnailWorker(self.model, media_files, thumb_dir)
+				worker.signals.result.connect(
+					lambda result, o=offset, z=zoom: self._on_thumbnails_done(result, o, z))
+				worker.signals.error.connect(lambda err: print(f"[Timeline] Thumbnail-Fehler: {err}"))
+				QThreadPool.globalInstance().start(worker)
 
 	def refresh_case_list(self):
 		cases = self.model.load_cases()
 		self.view.update_case_list(cases)
+
+	def _on_thumbnails_done(self, media_files, offset, zoom):
+		if hasattr(self.view, 'timeline_widget'):
+			self.view.timeline_widget.refresh(media_files, self.model.current_case,
+											 offset_hours=offset, zoom_pct=zoom)

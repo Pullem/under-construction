@@ -714,6 +714,7 @@
     <Compile Include="src\model\__init__.py" />
     <Compile Include="src\presenter\base.py" />
     <Compile Include="src\presenter\comparison.py" />
+    <Compile Include="src\presenter\ffmpeg_ops.py" />
     <Compile Include="src\presenter\file_ops.py" />
     <Compile Include="src\presenter\forensic_presenter.py" />
     <Compile Include="src\presenter\import_media.py" />
@@ -722,9 +723,15 @@
     <Compile Include="src\timeline_window.py" />
     <Compile Include="src\utils.py" />
     <Compile Include="src\overlay.py" />
+    <Compile Include="src\view\ffmpeg_presets.py" />
     <Compile Include="src\view\forensic_view.py" />
+    <Compile Include="src\view\hex_view.py" />
+    <Compile Include="src\view\image_enhance_widget.py" />
     <Compile Include="src\view\main_window.py" />
     <Compile Include="src\view\metadata_tabs.py" />
+    <Compile Include="src\view\tab_builder.py" />
+    <Compile Include="src\view\trim_widget.py" />
+    <Compile Include="src\view\video_source.py" />
     <Compile Include="src\view\__init__.py" />
     <Compile Include="src\worker.py" />
     <Compile Include="src\__init__.py" />
