@@ -86,6 +86,7 @@ class MainWindowMixin(QMainWindow):
 		self._root_pw_visible = False
 		self._is_analysis_built = False
 		self._case_path = ""
+		self.ffmpeg_input_path = ""
 
 	def setup_ui(self):
 		central = QWidget()

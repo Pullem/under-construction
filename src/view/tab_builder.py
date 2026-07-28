@@ -321,7 +321,6 @@ def build_media_tab(view, name, prefix, is_video):
 	else:
 		analyses = [
 			("streams", "Stream-Übersicht"),
-			("blackdetect", "Black-Detect"),
 			("quickcheck", "Quick-Check"),
 			("ela", "ELA-Analyse"),
 		]
