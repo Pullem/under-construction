@@ -22,7 +22,7 @@ def update_plugin_tab_labels(view, index):
 		if prefix == "B" and i == 0:
 			view.plugin_bar.setTabText(i, "Histogramm/Gamma")
 		else:
-			view.plugin_bar.setTabText(i, f"Plugin {prefix}{i + 1}")
+			view.plugin_bar.setTabText(i, f"Dummy {prefix}{i + 1}")
 
 
 def build_plugin_content(view):
@@ -37,7 +37,7 @@ def build_plugin_content(view):
 	for i in range(2, 7):
 		w = QWidget()
 		lay = QVBoxLayout(w)
-		lay.addWidget(QLabel(f"Plugin B{i} – noch nicht implementiert",
+		lay.addWidget(QLabel(f"Dummy B{i} – noch nicht implementiert",
 			styleSheet="color: #666; font-size: 12pt;"))
 		view.plugin_stack.addWidget(w)
 
