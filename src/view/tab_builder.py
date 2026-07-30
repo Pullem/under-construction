@@ -1,5 +1,3 @@
-import os
-
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 							 QLineEdit, QPushButton, QTextEdit, QDateEdit,
 							 QTimeEdit, QCheckBox, QListWidget, QTabWidget,
@@ -14,37 +12,6 @@ from .trim_widget import TrimWidget
 from .ffmpeg_presets import (preset_trim, preset_frames, preset_audio,
 	preset_timecode, preset_container, preset_hash, preset_custom,
 	preset_bitstream)
-
-
-def update_plugin_tab_labels(view, index):
-	prefix = "V" if index == 3 else "B" if index == 4 else ""
-	for i in range(6):
-		if prefix == "B" and i == 0:
-			view.plugin_bar.setTabText(i, "Histogramm/Gamma")
-		else:
-			view.plugin_bar.setTabText(i, f"Dummy {prefix}{i + 1}")
-
-
-def build_plugin_content(view):
-	# B1: Platzhalter – das echte Widget lebt im externen Fenster
-	w0 = QWidget()
-	lay0 = QVBoxLayout(w0)
-	lay0.addWidget(QLabel("Histogramm/Gamma-Fenster\nwird extern geöffnet",
-		styleSheet="color: #666; font-size: 12pt;"))
-	view.plugin_stack.addWidget(w0)
-
-	# B2–B6: Platzhalter
-	for i in range(2, 7):
-		w = QWidget()
-		lay = QVBoxLayout(w)
-		lay.addWidget(QLabel(f"Dummy B{i} – noch nicht implementiert",
-			styleSheet="color: #666; font-size: 12pt;"))
-		view.plugin_stack.addWidget(w)
-
-
-def toggle_plugin_panel(view, index):
-	show = index == 4  # only on Bilder tab
-	view.plugin_stack.setVisible(show)
 
 
 def build_case_tab(view):
@@ -323,17 +290,34 @@ def build_media_tab(view, name, prefix, is_video):
 			("streams", "Stream-Übersicht"),
 			("quickcheck", "Quick-Check"),
 			("ela", "ELA-Analyse"),
+			("copymove", "Copy-Move"),
+			("resample", "Resampling/Rauschen"),
+			("jpeggrid", "JPEG Grid"),
 		]
 
 	analysis_toolbar = QHBoxLayout()
 	for mode, title in analyses:
 		btn = QPushButton(title)
-		if mode == "quickcheck":
-			btn.setStyleSheet("background-color: #2a6d2a; color: white; font-weight: bold;")
 		btn.clicked.connect(lambda checked, m=mode: view._on_ffprobe_analyse(m))
 		setattr(view, f"{prefix}_btn_{mode}", btn)
 		analysis_toolbar.addWidget(btn)
 	left_layout.addLayout(analysis_toolbar)
+
+	# Plugin-Buttons (zweite Reihe)
+	plugin_toolbar = QHBoxLayout()
+	plugin_toolbar.setSpacing(4)
+	if is_video:
+		plugin_items = [(f"v{i}", f"Dummy V{i}") for i in range(1, 7)]
+	else:
+		plugin_items = [("histogramm", "Histogramm/Gamma")] + \
+			[(f"b{i}", f"Dummy B{i}") for i in range(2, 7)]
+	for mode, title in plugin_items:
+		btn = QPushButton(title)
+		btn.setStyleSheet("border: 1px solid #555;")
+		btn.clicked.connect(lambda checked, m=mode: view._on_plugin_btn_clicked(m))
+		setattr(view, f"{prefix}_pbtn_{mode}", btn)
+		plugin_toolbar.addWidget(btn)
+	left_layout.addLayout(plugin_toolbar)
 
 	analysis_result = QPlainTextEdit()
 	analysis_result.setReadOnly(True)
@@ -390,21 +374,33 @@ def build_media_tab(view, name, prefix, is_video):
 		right_layout = QVBoxLayout(right_widget)
 		right_layout.setContentsMargins(4, 0, 0, 0)
 
-		error_map_view = QLabel()
-		error_map_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-		error_map_view.setStyleSheet("border: 1px solid #444; background: #111; color: #666;")
-		error_map_view.setText("ELA-Error-Map")
-		error_map_view.setVisible(False)
-		setattr(view, f"{prefix}_error_map_view", error_map_view)
-		right_layout.addWidget(error_map_view, 1)
+		result_tabs = QTabWidget()
+		result_tabs.setDocumentMode(True)
 
-		hist_view = QLabel()
-		hist_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-		hist_view.setStyleSheet("border: 1px solid #444; background: #111; color: #666;")
-		hist_view.setText("ELA-Histogram")
-		hist_view.setVisible(False)
-		setattr(view, f"{prefix}_histogram_view", hist_view)
-		right_layout.addWidget(hist_view, 1)
+		tab_modes = [
+			("ela", "ELA"),
+			("copymove", "Copy-Move"),
+			("resample", "Resampling/Rauschen"),
+			("jpeggrid", "JPEG Grid"),
+		]
+		for tab_mode, tab_title in tab_modes:
+			tab_w = QWidget()
+			tab_ly = QVBoxLayout(tab_w)
+			tab_ly.setContentsMargins(2, 2, 2, 2)
+			err_map = QLabel(f"{tab_title}\n–")
+			err_map.setAlignment(Qt.AlignmentFlag.AlignCenter)
+			err_map.setStyleSheet("border: 1px solid #444; background: #111; color: #666; font-size: 10pt;")
+			setattr(view, f"{prefix}_tab_{tab_mode}_error_map", err_map)
+			tab_ly.addWidget(err_map, 1)
+			hist = QLabel()
+			hist.setAlignment(Qt.AlignmentFlag.AlignCenter)
+			hist.setStyleSheet("border: 1px solid #444; background: #111; color: #666;")
+			setattr(view, f"{prefix}_tab_{tab_mode}_histogram", hist)
+			tab_ly.addWidget(hist, 1)
+			result_tabs.addTab(tab_w, tab_title)
+
+		setattr(view, f"{prefix}_result_tabs", result_tabs)
+		right_layout.addWidget(result_tabs, 1)
 
 		splitter.addWidget(right_widget)
 		splitter.setStretchFactor(0, 1)

@@ -61,8 +61,7 @@ class FileOpsMixin:
 				self.view.set_active_tab_by_name(target_tab)
 				self.view.tabs.blockSignals(False)
 
-				t_path = self.model.get_thumbnail(row['file_path'])
-				self.view.set_thumbnail(t_path)
+				self.view.set_thumbnail(row['file_path'])
 		except Exception as e:
 			print(f"Fehler beim Laden der Dateidetails: {e}")
 			if hasattr(self.view, 'tabs'):

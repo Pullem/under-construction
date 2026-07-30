@@ -38,7 +38,6 @@ class MediaMixin:
 				subprocess.run(
 					[ffmpeg, "-ss", "0", "-i", str(filepath),
 					 "-vframes", "1", "-q:v", "2",
-					 "-map_metadata", "-1",
 					 "-y", str(thumb_path)],
 					capture_output=True, text=True, timeout=30
 				)
@@ -164,7 +163,6 @@ class MediaMixin:
 				subprocess.run(
 					[ffmpeg, "-ss", str(t), "-i", str(filepath),
 					 "-vframes", "1", "-q:v", "2",
-					 "-map_metadata", "-1",
 					 "-vf", "scale=120:-2",
 					 "-y", str(thumb_path)],
 					capture_output=True, text=True, timeout=30

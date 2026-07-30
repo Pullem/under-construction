@@ -7,8 +7,8 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 							 QPushButton, QTabWidget, QTabBar, QTextEdit,
 							 QStackedWidget, QMessageBox, QStyle, QStyleOptionTab,
 							 QDateEdit, QTimeEdit, QCheckBox, QComboBox, QSlider,
-							 QPlainTextEdit, QProgressBar, QGridLayout, QFileDialog,
-							 QSpinBox, QSplitter)
+						 QPlainTextEdit, QProgressBar, QGridLayout, QFileDialog,
+						 QSpinBox)
 from PyQt6.QtCore import pyqtSignal, Qt, QSize, QDate, QTime, QDateTime
 from PyQt6.QtGui import QPixmap, QPainter, QColor
 
@@ -18,7 +18,6 @@ from .image_enhance_widget import ImageEnhanceWindow
 from .tab_builder import (build_case_tab, build_import_tab, build_metadata_tab,
 	build_videos_tab, build_bilder_tab, build_settings_tab,
 	build_hex_tab, build_analysis_tab, build_placeholder_tab,
-	build_plugin_content, toggle_plugin_panel, update_plugin_tab_labels,
 	active_media_prefix)
 
 # ---------------------------------------------------------
@@ -103,22 +102,6 @@ class MainWindowMixin(QMainWindow):
 		# --- MITTE: Inhaltsbereich ---
 		self.content_stack = QStackedWidget()
 
-		# --- RECHTS: Plugin-Tabbar ---
-		self.plugin_bar = FlatTabBar()
-		self.plugin_bar.setShape(QTabBar.Shape.RoundedEast)
-		self.plugin_bar.setFixedWidth(160)
-
-		# Plugin-Inhaltsbereich (rechts neben content_stack)
-		self.plugin_stack = QStackedWidget()
-		self.plugin_stack.setVisible(False)
-
-		# Splitter: links content_stack, rechts plugin_stack
-		self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
-		self._main_splitter.addWidget(self.content_stack)
-		self._main_splitter.addWidget(self.plugin_stack)
-		self._main_splitter.setStretchFactor(0, 3)
-		self._main_splitter.setStretchFactor(1, 2)
-
 		# Tabs + Inhalt bauen
 		build_case_tab(self)
 		build_import_tab(self)
@@ -130,32 +113,24 @@ class MainWindowMixin(QMainWindow):
 		build_placeholder_tab(self, "Export")
 		build_settings_tab(self)
 
-		# Plugin-Tabs rechts
-		for i in range(1, 7):
-			self.plugin_bar.addTab(f"Plugin {i}")
-		build_plugin_content(self)
-
 		# Navigation verknüpfen
 		self.nav_bar.currentChanged.connect(self.content_stack.setCurrentIndex)
-		self.content_stack.currentChanged.connect(lambda i: update_plugin_tab_labels(self, i))
-		self.content_stack.currentChanged.connect(lambda i: toggle_plugin_panel(self, i))
-		self.plugin_bar.currentChanged.connect(self._on_plugin_tab_clicked)
 
 		self._refresh_timezone()
 
 		main_layout.addWidget(self.nav_bar)
-		main_layout.addWidget(self._main_splitter, 1)
-		main_layout.addWidget(self.plugin_bar)
+		main_layout.addWidget(self.content_stack, 1)
 
-		# Initialen Status setzen
-		update_plugin_tab_labels(self, 0)
-		toggle_plugin_panel(self, 0)
-
-	def _on_plugin_tab_clicked(self, index):
-		if index == 0:
+	def _on_plugin_btn_clicked(self, mode):
+		if mode == "histogramm":
 			self._open_enhance_window()
 		else:
-			self.plugin_stack.setCurrentIndex(index)
+			prefix = active_media_prefix(self)
+			result = getattr(self, f"{prefix}_result", None)
+			if result:
+				btn = getattr(self, f"{prefix}_pbtn_{mode}", None)
+				name = btn.text() if btn else mode
+				result.setPlainText(f"{name} – noch nicht implementiert")
 
 	def _open_enhance_window(self):
 		if not hasattr(self, "_enhance_window") or self._enhance_window is None:
@@ -313,11 +288,19 @@ class MainWindowMixin(QMainWindow):
 		return None
 
 	def _on_ffprobe_analyse(self, mode):
+		prefix = active_media_prefix(self)
+		for attr_name in dir(self):
+			if attr_name.startswith(f"{prefix}_btn_"):
+				btn = getattr(self, attr_name)
+				btn_m = attr_name[len(f"{prefix}_btn_"):]
+				if btn_m == mode:
+					btn.setStyleSheet("background-color: #2a6d2a; color: white; font-weight: bold;")
+				else:
+					btn.setStyleSheet("")
 		path = self.ffmpeg_input_path
 		if not path:
 			QMessageBox.warning(self, "Keine Datei", "Bitte zuerst eine Datei auswählen.")
 			return
-		prefix = active_media_prefix(self)
 		getattr(self, f"{prefix}_result").clear()
 		self.ffprobe_analyse_requested.emit(path, mode, prefix)
 
@@ -514,17 +497,21 @@ class MainWindowMixin(QMainWindow):
 			try:
 				from PIL import Image, ImageOps
 				from io import BytesIO
-				pil = ImageOps.exif_transpose(Image.open(path))
+				img = Image.open(path)
+				img = ImageOps.exif_transpose(img) or img
+				img.thumbnail((320, 180))
 				buf = BytesIO()
-				pil.save(buf, format="PNG")
+				img.save(buf, format="PNG")
 				buf.seek(0)
 				pix = QPixmap()
 				pix.loadFromData(buf.read())
-				self.thumb_label.setPixmap(pix.scaled(320, 180, Qt.AspectRatioMode.KeepAspectRatio))
+				self.thumb_label.setPixmap(pix)
 				return
 			except Exception:
 				pix = QPixmap(path)
-				self.thumb_label.setPixmap(pix.scaled(320, 180, Qt.AspectRatioMode.KeepAspectRatio))
+				if not pix.isNull():
+					self.thumb_label.setPixmap(
+						pix.scaled(320, 180, Qt.AspectRatioMode.KeepAspectRatio))
 		else:
 			self.thumb_label.setText("Vorschau")
 

@@ -318,3 +318,109 @@ class ElaWorker(QRunnable):
 
 		except Exception as e:
 			self.signals.error.emit("ela", str(e))
+
+
+class CopyMoveWorkerSignals(QObject):
+	result = pyqtSignal(str, str, str, str)  # mode, text_result, result_image_path, _unused
+	error = pyqtSignal(str, str)
+
+
+class CopyMoveWorker(QRunnable):
+	"""Keypoint-basierte Copy-Move-Forgery-Erkennung mittels SIFT + FLANN + RANSAC."""
+
+	def __init__(self, filepath, exports_dir):
+		super().__init__()
+		self.filepath = filepath
+		self.exports_dir = Path(exports_dir)
+		self.signals = CopyMoveWorkerSignals()
+
+	def run(self):
+		try:
+			from PIL import Image, ImageOps
+			import numpy as np
+			import cv2
+
+			stem = Path(self.filepath).stem
+			src = ImageOps.exif_transpose(Image.open(self.filepath)).convert("RGB")
+			gray = cv2.cvtColor(np.array(src), cv2.COLOR_RGB2GRAY)
+
+			# 1) SIFT-Features extrahieren
+			sift = cv2.SIFT_create()
+			kp, desc = sift.detectAndCompute(gray, None)
+
+			if desc is None or len(kp) < 8:
+				text = (
+					f"Copy-Move-Analyse: {Path(self.filepath).name}\n"
+					f"{'-' * 50}\n"
+					f"Zu wenig Features ({len(kp) if kp is not None else 0} gefunden, min 8)."
+				)
+				self.signals.result.emit("copymove", text, "", "")
+				return
+
+			# 2) FLANN-Matcher (self-match)
+			FLANN_INDEX_KDTREE = 1
+			flann = cv2.FlannBasedMatcher(
+				{"algorithm": FLANN_INDEX_KDTREE, "trees": 5},
+				{"checks": 50}
+			)
+			matches = flann.knnMatch(desc, desc, k=2)
+
+			# 3) Ratio-Test + Self-Match + Distanz-Filter
+			good = []
+			for pair in matches:
+				if len(pair) < 2:
+					continue
+				m, n = pair
+				if m.queryIdx == m.trainIdx:
+					continue
+				if m.distance < 0.75 * n.distance:
+					pt1 = np.array(kp[m.queryIdx].pt)
+					pt2 = np.array(kp[m.trainIdx].pt)
+					if np.linalg.norm(pt1 - pt2) > 30:
+						good.append(m)
+
+			# 4) RANSAC-konsistente Transformation
+			pairs = []
+			if len(good) >= 4:
+				src_pts = np.float32([kp[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+				dst_pts = np.float32([kp[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+				_, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+				if mask is not None:
+					for i, m in enumerate(good):
+						if mask[i]:
+							pairs.append((kp[m.queryIdx], kp[m.trainIdx]))
+
+			if not pairs:
+				pairs = [(kp[m.queryIdx], kp[m.trainIdx]) for m in good[:200]]
+
+			# 5) Visualisierung
+			vis = np.array(src)
+			for qk, tk in pairs:
+				cv2.line(vis,
+					(int(qk.pt[0]), int(qk.pt[1])),
+					(int(tk.pt[0]), int(tk.pt[1])),
+					(0, 255, 0), 1)
+				cv2.circle(vis, (int(qk.pt[0]), int(qk.pt[1])), 4, (255, 0, 0), -1)
+				cv2.circle(vis, (int(tk.pt[0]), int(tk.pt[1])), 4, (0, 0, 255), -1)
+
+			cm_path = self.exports_dir / f"{stem}_copymove.png"
+			cv2.imwrite(str(cm_path), cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
+
+			# 6) Report
+			verdict = "⚠️  Copy-Move verdächtig" if len(pairs) > 15 else "Keine offensichtliche Copy-Move erkannt"
+			text = (
+				f"Copy-Move-Analyse: {Path(self.filepath).name}\n"
+				f"{'-' * 50}\n"
+				f"SIFT-Features: {len(kp)}\n"
+				f"Matched (Ratio-Test): {len(good)}\n"
+				f"RANSAC-Inlier: {len(pairs)}\n"
+				f"Ergebnis: {verdict}\n"
+				f"\n"
+				f"Visualisierung: {cm_path}\n"
+			)
+			self.signals.result.emit("copymove", text, str(cm_path), "")
+
+		except Exception as e:
+			import traceback
+			traceback.print_exc()
+			self.signals.error.emit("copymove", str(e))

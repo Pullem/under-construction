@@ -5,7 +5,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QProcess, QThreadPool
 
 from ..model.base import BASE_DIR
-from ..worker import FfprobeWorker, ElaWorker
+from ..worker import FfprobeWorker, ElaWorker, CopyMoveWorker
 
 
 class FfmpegOpsMixin:
@@ -329,7 +329,7 @@ class FfmpegOpsMixin:
 		self._last_probe_path = filepath
 		self._last_probe_prefix = prefix
 
-		# ELA nutzt Python (Pillow + NumPy + matplotlib), kein ffprobe/ffmpeg
+		# Python-basierte Analysen (kein ffprobe)
 		if mode == "ela":
 			self._ffmpeg_log_probe(f"Starte {mode} (async)...")
 			exports_dir = Path(self.model.current_case_path) / "exports" if self.model.current_case_path else Path()
@@ -338,6 +338,23 @@ class FfmpegOpsMixin:
 			worker.signals.result.connect(self._on_ela_result)
 			worker.signals.error.connect(self._on_ela_error)
 			self.threadpool.start(worker)
+			return
+
+		if mode == "copymove":
+			self._ffmpeg_log_probe(f"Starte {mode} (async)...")
+			exports_dir = Path(self.model.current_case_path) / "exports" if self.model.current_case_path else Path()
+			exports_dir.mkdir(parents=True, exist_ok=True)
+			worker = CopyMoveWorker(filepath, str(exports_dir))
+			worker.signals.result.connect(self._on_analysis_result)
+			worker.signals.error.connect(self._on_analysis_error)
+			self.threadpool.start(worker)
+			return
+
+		if mode in ("resample", "jpeggrid"):
+			self._ffmpeg_log_probe(f"{mode} – noch nicht implementiert.")
+			result_widget = getattr(self.view, f'{prefix}_result', None)
+			if result_widget:
+				result_widget.setPlainText(f"{mode} – noch nicht implementiert")
 			return
 
 		cmd = self._build_ffprobe_cmd(filepath, mode)
@@ -407,16 +424,27 @@ class FfmpegOpsMixin:
 	def _on_ela_result(self, mode, text_result, error_map_path, hist_path):
 		self._ffmpeg_log_probe("ELA-Analyse abgeschlossen.")
 		p = getattr(self, '_last_probe_prefix', 'video')
-		# Text-Ergebnis anzeigen
 		result_widget = getattr(self.view, f'{p}_result', None)
 		if result_widget:
 			result_widget.setPlainText(text_result)
-		# Error-Map auf der rechten Seite anzeigen
-		self._set_ela_image(p, f'{p}_error_map_view', error_map_path)
-		# Histogram auf der rechten Seite anzeigen
-		self._set_ela_image(p, f'{p}_histogram_view', hist_path)
+		self._set_result_image(p, "ela", "error_map", error_map_path)
+		self._set_result_image(p, "ela", "histogram", hist_path)
+		self._switch_to_tab(p, "ela")
 
-	def _set_ela_image(self, prefix, attr, path):
+	def _on_analysis_result(self, mode, text_result, error_map_path, hist_path):
+		self._ffmpeg_log_probe(f"{mode}-Analyse abgeschlossen.")
+		p = getattr(self, '_last_probe_prefix', 'video')
+		result_widget = getattr(self.view, f'{p}_result', None)
+		if result_widget:
+			result_widget.setPlainText(text_result)
+		if error_map_path:
+			self._set_result_image(p, mode, "error_map", error_map_path)
+		if hist_path:
+			self._set_result_image(p, mode, "histogram", hist_path)
+		self._switch_to_tab(p, mode)
+
+	def _set_result_image(self, prefix, mode, image_type, path):
+		attr = f"{prefix}_tab_{mode}_{image_type}"
 		label = getattr(self.view, attr, None)
 		if label is None or not os.path.exists(path):
 			return
@@ -429,12 +457,27 @@ class FfmpegOpsMixin:
 				Qt.TransformationMode.SmoothTransformation))
 			label.setVisible(True)
 
+	def _switch_to_tab(self, prefix, mode):
+		tabs = getattr(self.view, f"{prefix}_result_tabs", None)
+		if tabs is None:
+			return
+		tab_modes = ["ela", "copymove", "resample", "jpeggrid"]
+		if mode in tab_modes:
+			tabs.setCurrentIndex(tab_modes.index(mode))
+
 	def _on_ela_error(self, mode, error_msg):
 		self._ffmpeg_log_probe(f"ELA-Fehler: {error_msg}")
 		p = getattr(self, '_last_probe_prefix', 'video')
 		result_widget = getattr(self.view, f'{p}_result', None)
 		if result_widget:
 			result_widget.setPlainText(f"ELA-Fehler: {error_msg}")
+
+	def _on_analysis_error(self, mode, error_msg):
+		self._ffmpeg_log_probe(f"{mode}-Fehler: {error_msg}")
+		p = getattr(self, '_last_probe_prefix', 'video')
+		result_widget = getattr(self.view, f'{p}_result', None)
+		if result_widget:
+			result_widget.setPlainText(f"{mode}-Fehler: {error_msg}")
 
 	def _run_ffprobe_quickcheck(self, filepath, raw_output=None):
 		self._ffmpeg_log_probe(f"Quick-Check: {filepath}")
