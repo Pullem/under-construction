@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from PyQt6.QtCore import QThreadPool, Qt
 
 
@@ -64,9 +65,18 @@ class PresenterBase:
 		if hasattr(self.view, "ffprobe_analyse_requested"):
 			self.view.ffprobe_analyse_requested.connect(self.handle_ffprobe_analyse)
 
+		if hasattr(self.view, "sensitivity_requested"):
+			self.view.sensitivity_requested.connect(self.handle_sensitivity_changed)
+
 		self._refresh_settings()
 
 		self._last_selected_file = None
+		self._thumbnail_generation = 0
+		self._thumb_worker_running = False
+		self._thumb_worker_case_id = None
+		self._last_timeline_offset = 0
+		self._last_timeline_zoom = 100
+		self._last_chunk_refresh = 0.0
 		self.case_path = model.current_case_path
 		if self.case_path:
 			self._init_case_paths()
@@ -222,21 +232,60 @@ class PresenterBase:
 			self.view.timeline_widget.refresh(media_files, self.model.current_case,
 											 offset_hours=offset, zoom_pct=zoom)
 
+			self._last_timeline_offset = offset
+			self._last_timeline_zoom = zoom
+
 			# Thumbnails asynchron im Worker-Thread extrahieren
 			thumb_dir = self.model.current_case_path / "thumbnails" if self.model.current_case_path else None
 			if thumb_dir and media_files:
-				from ..worker import ThumbnailWorker
-				worker = ThumbnailWorker(self.model, media_files, thumb_dir)
-				worker.signals.result.connect(
-					lambda result, o=offset, z=zoom: self._on_thumbnails_done(result, o, z))
-				worker.signals.error.connect(lambda err: print(f"[Timeline] Thumbnail-Fehler: {err}"))
-				QThreadPool.globalInstance().start(worker)
+				case_id = self.model.current_case_id
+				if self._thumb_worker_running and self._thumb_worker_case_id == case_id:
+					print("[Timeline] ThumbnailWorker läuft bereits – überspringe Start.")
+				else:
+					from ..worker import ThumbnailWorker
+					self._thumbnail_generation += 1
+					gen = self._thumbnail_generation
+					self._thumb_worker_running = True
+					self._thumb_worker_case_id = case_id
+					worker = ThumbnailWorker(self.model, media_files, thumb_dir)
+					worker.signals.chunk.connect(
+						lambda result, g=gen: self._on_thumbnails_chunk(result, g))
+					worker.signals.result.connect(
+						lambda result, g=gen, o=offset, z=zoom: self._on_thumbnails_done(result, g, o, z))
+					worker.signals.error.connect(
+						lambda err, g=gen: self._on_thumbnail_error(err, g))
+					QThreadPool.globalInstance().start(worker)
 
 	def refresh_case_list(self):
 		cases = self.model.load_cases()
 		self.view.update_case_list(cases)
 
-	def _on_thumbnails_done(self, media_files, offset, zoom):
+	def _on_thumbnails_chunk(self, media_files, gen):
+		if gen != self._thumbnail_generation:
+			return
+		now = time.monotonic()
+		if now - self._last_chunk_refresh < 0.5:
+			return
+		self._last_chunk_refresh = now
+		if hasattr(self.view, 'timeline_widget'):
+			self.view.timeline_widget.refresh(
+				media_files, self.model.current_case,
+				offset_hours=self._last_timeline_offset, zoom_pct=self._last_timeline_zoom)
+
+	def _on_thumbnails_done(self, media_files, gen, offset, zoom):
+		if gen != self._thumbnail_generation:
+			return
+		if self._thumb_worker_case_id != self.model.current_case_id:
+			return
+		self._thumb_worker_running = False
 		if hasattr(self.view, 'timeline_widget'):
 			self.view.timeline_widget.refresh(media_files, self.model.current_case,
 											 offset_hours=offset, zoom_pct=zoom)
+
+	def _on_thumbnail_error(self, err, gen):
+		if gen != self._thumbnail_generation:
+			return
+		if self._thumb_worker_case_id != self.model.current_case_id:
+			return
+		self._thumb_worker_running = False
+		print(f"[Timeline] Thumbnail-Fehler: {err}")

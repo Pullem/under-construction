@@ -301,6 +301,18 @@ def build_media_tab(view, name, prefix, is_video):
 		btn.clicked.connect(lambda checked, m=mode: view._on_ffprobe_analyse(m))
 		setattr(view, f"{prefix}_btn_{mode}", btn)
 		analysis_toolbar.addWidget(btn)
+
+	if not is_video:
+		analysis_toolbar.addStretch()
+		analysis_toolbar.addWidget(QLabel("Empfindlichkeit:"))
+		sens = QComboBox()
+		sens.addItem("Standard", "standard")
+		sens.addItem("Empfindlich", "empfindlich")
+		sens.addItem("Sehr empfindlich", "sehr_empfindlich")
+		sens.currentIndexChanged.connect(view._on_sensitivity_changed)
+		setattr(view, f"{prefix}_sensitivity", sens)
+		analysis_toolbar.addWidget(sens)
+
 	left_layout.addLayout(analysis_toolbar)
 
 	# Plugin-Buttons (zweite Reihe)

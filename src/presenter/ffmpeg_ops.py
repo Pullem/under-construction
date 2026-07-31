@@ -12,6 +12,7 @@ class FfmpegOpsMixin:
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
 		self._ffmpeg_proc = None
+		self._copymove_running = False
 
 	def handle_ffmpeg_run(self, input_path, args_str, codec_fmt, prefix="video"):
 		if self._ffmpeg_proc:
@@ -341,13 +342,7 @@ class FfmpegOpsMixin:
 			return
 
 		if mode == "copymove":
-			self._ffmpeg_log_probe(f"Starte {mode} (async)...")
-			exports_dir = Path(self.model.current_case_path) / "exports" if self.model.current_case_path else Path()
-			exports_dir.mkdir(parents=True, exist_ok=True)
-			worker = CopyMoveWorker(filepath, str(exports_dir))
-			worker.signals.result.connect(self._on_analysis_result)
-			worker.signals.error.connect(self._on_analysis_error)
-			self.threadpool.start(worker)
+			self._start_copymove(filepath, prefix)
 			return
 
 		if mode in ("resample", "jpeggrid"):
@@ -366,6 +361,29 @@ class FfmpegOpsMixin:
 		worker.signals.result.connect(self._on_ffprobe_result)
 		worker.signals.error.connect(self._on_ffprobe_error)
 		self.threadpool.start(worker)
+
+	def _start_copymove(self, filepath, prefix):
+		if self._copymove_running:
+			self._ffmpeg_log_probe("Copy-Move läuft bereits – überspringe.")
+			return
+		self._ffmpeg_log_probe("Starte copymove (async)...")
+		self._copymove_running = True
+		exports_dir = Path(self.model.current_case_path) / "exports" if self.model.current_case_path else Path()
+		exports_dir.mkdir(parents=True, exist_ok=True)
+		combo = getattr(self.view, f"{prefix}_sensitivity", None)
+		sensitivity = "standard"
+		if combo is not None:
+			sensitivity = combo.currentData() or "standard"
+		worker = CopyMoveWorker(filepath, str(exports_dir), sensitivity)
+		worker.signals.result.connect(self._on_analysis_result)
+		worker.signals.error.connect(self._on_analysis_error)
+		self.threadpool.start(worker)
+
+	def handle_sensitivity_changed(self, filepath, prefix):
+		result_widget = getattr(self.view, f'{prefix}_result', None)
+		if result_widget:
+			result_widget.clear()
+		self._start_copymove(filepath, prefix)
 
 	def _build_ffprobe_cmd(self, filepath, mode):
 		if mode == "streams":
@@ -432,6 +450,7 @@ class FfmpegOpsMixin:
 		self._switch_to_tab(p, "ela")
 
 	def _on_analysis_result(self, mode, text_result, error_map_path, hist_path):
+		self._copymove_running = False
 		self._ffmpeg_log_probe(f"{mode}-Analyse abgeschlossen.")
 		p = getattr(self, '_last_probe_prefix', 'video')
 		result_widget = getattr(self.view, f'{p}_result', None)
@@ -473,6 +492,7 @@ class FfmpegOpsMixin:
 			result_widget.setPlainText(f"ELA-Fehler: {error_msg}")
 
 	def _on_analysis_error(self, mode, error_msg):
+		self._copymove_running = False
 		self._ffmpeg_log_probe(f"{mode}-Fehler: {error_msg}")
 		p = getattr(self, '_last_probe_prefix', 'video')
 		result_widget = getattr(self.view, f'{p}_result', None)

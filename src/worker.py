@@ -157,6 +157,7 @@ class ElaWorkerSignals(QObject):
 
 class ThumbnailWorkerSignals(QObject):
 	progress = pyqtSignal(int, int)  # current, total
+	chunk = pyqtSignal(object)       # media_files mit bisherigen Thumbnails
 	result = pyqtSignal(object)      # list of media_files with _thumbnails populated
 	error = pyqtSignal(str)
 
@@ -174,33 +175,36 @@ class ThumbnailWorker(QRunnable):
 	def run(self):
 		try:
 			total = len(self.media_files)
+			chunk_size = 100
 			for idx, f in enumerate(self.media_files):
-				fname = f.get("file_name", "")
-				meta = f.get("metadata", {})
-				fpath = f.get("file_path", "")
-				if not fpath or not os.path.exists(fpath):
-					f["_thumbnails"] = []
-					f["_duration_sec"] = 0
-					self.signals.progress.emit(idx + 1, total)
-					continue
-
-				fname_lower = fname.lower()
-				if fname_lower.endswith((".mp4", ".mov", ".avi", ".mkv", ".webm", ".mts")):
-					self._extract_video(f, meta, fpath)
-				elif fname_lower.endswith((".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")):
-					self._extract_photo(f, fpath)
-				else:
-					f["_thumbnails"] = []
-					f["_duration_sec"] = 0
-
+				self._process_file(f)
 				self.signals.progress.emit(idx + 1, total)
-
+				if (idx + 1) % chunk_size == 0:
+					self.signals.chunk.emit(self.media_files)
 			self.signals.result.emit(self.media_files)
 
 		except Exception as e:
 			import traceback
 			print(f"[ThumbnailWorker] Fehler: {traceback.format_exc()}")
 			self.signals.error.emit(str(e))
+
+	def _process_file(self, f):
+		fname = f.get("file_name", "")
+		meta = f.get("metadata", {})
+		fpath = f.get("file_path", "")
+		if not fpath or not os.path.exists(fpath):
+			f["_thumbnails"] = []
+			f["_duration_sec"] = 0
+			return
+
+		fname_lower = fname.lower()
+		if fname_lower.endswith((".mp4", ".mov", ".avi", ".mkv", ".webm", ".mts")):
+			self._extract_video(f, meta, fpath)
+		elif fname_lower.endswith((".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")):
+			self._extract_photo(f, fpath)
+		else:
+			f["_thumbnails"] = []
+			f["_duration_sec"] = 0
 
 	def _extract_video(self, f, meta, fpath):
 		general = meta.get("General", {})
@@ -320,6 +324,31 @@ class ElaWorker(QRunnable):
 			self.signals.error.emit("ela", str(e))
 
 
+SENSITIVITY_PRESETS = {
+	"standard": {
+		"contrast_threshold": 0.04,
+		"ratio": 0.75,
+		"spatial_dist": 30,
+		"ransac_thresh": 5.0,
+		"verdict_threshold": 15,
+	},
+	"empfindlich": {
+		"contrast_threshold": 0.02,
+		"ratio": 0.80,
+		"spatial_dist": 20,
+		"ransac_thresh": 5.0,
+		"verdict_threshold": 12,
+	},
+	"sehr_empfindlich": {
+		"contrast_threshold": 0.01,
+		"ratio": 0.85,
+		"spatial_dist": 15,
+		"ransac_thresh": 8.0,
+		"verdict_threshold": 8,
+	},
+}
+
+
 class CopyMoveWorkerSignals(QObject):
 	result = pyqtSignal(str, str, str, str)  # mode, text_result, result_image_path, _unused
 	error = pyqtSignal(str, str)
@@ -328,10 +357,12 @@ class CopyMoveWorkerSignals(QObject):
 class CopyMoveWorker(QRunnable):
 	"""Keypoint-basierte Copy-Move-Forgery-Erkennung mittels SIFT + FLANN + RANSAC."""
 
-	def __init__(self, filepath, exports_dir):
+	def __init__(self, filepath, exports_dir, sensitivity="standard"):
 		super().__init__()
 		self.filepath = filepath
 		self.exports_dir = Path(exports_dir)
+		self.sensitivity = sensitivity
+		self.params = SENSITIVITY_PRESETS.get(sensitivity, SENSITIVITY_PRESETS["standard"])
 		self.signals = CopyMoveWorkerSignals()
 
 	def run(self):
@@ -345,7 +376,7 @@ class CopyMoveWorker(QRunnable):
 			gray = cv2.cvtColor(np.array(src), cv2.COLOR_RGB2GRAY)
 
 			# 1) SIFT-Features extrahieren
-			sift = cv2.SIFT_create()
+			sift = cv2.SIFT_create(contrastThreshold=self.params["contrast_threshold"])
 			kp, desc = sift.detectAndCompute(gray, None)
 
 			if desc is None or len(kp) < 8:
@@ -373,10 +404,10 @@ class CopyMoveWorker(QRunnable):
 				m, n = pair
 				if m.queryIdx == m.trainIdx:
 					continue
-				if m.distance < 0.75 * n.distance:
+				if m.distance < self.params["ratio"] * n.distance:
 					pt1 = np.array(kp[m.queryIdx].pt)
 					pt2 = np.array(kp[m.trainIdx].pt)
-					if np.linalg.norm(pt1 - pt2) > 30:
+					if np.linalg.norm(pt1 - pt2) > self.params["spatial_dist"]:
 						good.append(m)
 
 			# 4) RANSAC-konsistente Transformation
@@ -384,7 +415,7 @@ class CopyMoveWorker(QRunnable):
 			if len(good) >= 4:
 				src_pts = np.float32([kp[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
 				dst_pts = np.float32([kp[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
-				_, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+				_, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, self.params["ransac_thresh"])
 				if mask is not None:
 					for i, m in enumerate(good):
 						if mask[i]:
@@ -407,10 +438,12 @@ class CopyMoveWorker(QRunnable):
 			cv2.imwrite(str(cm_path), cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
 
 			# 6) Report
-			verdict = "⚠️  Copy-Move verdächtig" if len(pairs) > 15 else "Keine offensichtliche Copy-Move erkannt"
+			verdict = "⚠️  Copy-Move verdächtig" if len(pairs) > self.params["verdict_threshold"] else "Keine offensichtliche Copy-Move erkannt"
 			text = (
 				f"Copy-Move-Analyse: {Path(self.filepath).name}\n"
 				f"{'-' * 50}\n"
+				f"Empfindlichkeit: {self.sensitivity} "
+				f"(ratio={self.params['ratio']}, dist={self.params['spatial_dist']})\n"
 				f"SIFT-Features: {len(kp)}\n"
 				f"Matched (Ratio-Test): {len(good)}\n"
 				f"RANSAC-Inlier: {len(pairs)}\n"

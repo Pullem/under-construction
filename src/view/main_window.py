@@ -73,6 +73,7 @@ class MainWindowMixin(QMainWindow):
 	ffmpeg_run_requested = pyqtSignal(str, str, str, str)
 	ffmpeg_abort_requested = pyqtSignal()
 	ffprobe_analyse_requested = pyqtSignal(str, str, str)
+	sensitivity_requested = pyqtSignal(str, str)
 	ffmpeg_lossless_trim_requested = pyqtSignal(str, int, int, str)
 
 	def __init__(self, **kwargs):
@@ -303,6 +304,13 @@ class MainWindowMixin(QMainWindow):
 			return
 		getattr(self, f"{prefix}_result").clear()
 		self.ffprobe_analyse_requested.emit(path, mode, prefix)
+
+	def _on_sensitivity_changed(self):
+		prefix = active_media_prefix(self)
+		path = self.ffmpeg_input_path
+		if not path:
+			return
+		self.sensitivity_requested.emit(path, prefix)
 
 	def _on_meta_search(self, query):
 		if hasattr(self, "search_metadata_tables"):

@@ -10,6 +10,12 @@ from PyQt6.QtGui import QColor, QPen, QBrush, QFont, QPainter, QPixmap
 
 _LANE_COLORS = {"Foto": QColor("#4FC3F7"), "Sonstige": QColor("#9E9E9E")}
 
+# Obergrenzen, damit sehr lange Zeiträume die Szene nicht sprengen
+_MAX_CHART_WIDTH = 80_000.0
+_MAX_TICKS = 150
+_MAX_LABELS = 40
+_MAX_PIXMAP_ITEMS = 500
+
 
 def _guess_media_type(filename):
 	name = filename.lower()
@@ -132,7 +138,7 @@ class TimelineWidget(QWidget):
 
 	def _render(self):
 		self._scene.clear()
-		px_per_sec = 2.0 * (self._zoom_pct / 100.0)
+		raw_px_per_sec = 2.0 * (self._zoom_pct / 100.0)
 		lane_h = 80.0
 		ruler_h = 30.0
 		lane_labels_w = 120.0
@@ -198,7 +204,10 @@ class TimelineWidget(QWidget):
 		ts_end = ts_max + timedelta(seconds=margin)
 		total_sec = (ts_end - ts_start).total_seconds()
 
-		chart_total_x = total_sec * px_per_sec
+		chart_total_x = total_sec * raw_px_per_sec
+		if chart_total_x > _MAX_CHART_WIDTH:
+			chart_total_x = _MAX_CHART_WIDTH
+		px_per_sec = chart_total_x / total_sec
 
 		def x_pos(ts):
 			rel = (ts - ts_start).total_seconds() / total_sec
@@ -266,6 +275,7 @@ class TimelineWidget(QWidget):
 			self._scene.addItem(line)
 
 		# Fotos und Sonstige als Punkte/Thumbnails zeichnen
+		pixmap_items = 0
 		for i, (label, items, ltype) in enumerate(lane_configs):
 			y = ruler_h + i * lane_h
 			for f in items:
@@ -275,7 +285,7 @@ class TimelineWidget(QWidget):
 				x = x_pos(ts)
 				if ltype == "foto":
 					thumbs = f.get("_thumbnails", [])
-					if thumbs:
+					if thumbs and pixmap_items < _MAX_PIXMAP_ITEMS:
 						tp = thumbs[0]["path"]
 						if os.path.exists(tp):
 							pix = QPixmap(tp)
@@ -287,6 +297,7 @@ class TimelineWidget(QWidget):
 								item.setPos(x - pw / 2, y + (lane_h - ph) / 2)
 								item.setToolTip(f"{f.get('file_name','')}\n{ts}")
 								self._scene.addItem(item)
+								pixmap_items += 1
 								continue
 					dot = QGraphicsRectItem(QRectF(x - 5, y + lane_h / 2 - 5, 10, 10))
 					dot.setBrush(QBrush(_LANE_COLORS.get("Foto", QColor("#4FC3F7"))))
@@ -336,6 +347,9 @@ class TimelineWidget(QWidget):
 				pix = QPixmap(tp)
 				if pix.isNull():
 					continue
+				if pixmap_items >= _MAX_PIXMAP_ITEMS:
+					break
+				pixmap_items += 1
 				scale = min(thumb_max_w / pix.width(), thumb_max_h / pix.height(), 1.0)
 				pw = int(pix.width() * scale)
 				ph = int(pix.height() * scale)
@@ -351,8 +365,9 @@ class TimelineWidget(QWidget):
 		ruler_bg.setPen(QPen(Qt.PenStyle.NoPen))
 		self._scene.addItem(ruler_bg)
 
-		num_ticks = max(10, int(chart_total_x / 100))
+		num_ticks = max(10, min(_MAX_TICKS, int(chart_total_x / 100)))
 		step = total_sec / num_ticks
+		label_every = max(1, math.ceil(num_ticks / _MAX_LABELS))
 		for i in range(num_ticks + 1):
 			t = ts_start + timedelta(seconds=i * step)
 			x = x_pos(t)
@@ -364,12 +379,13 @@ class TimelineWidget(QWidget):
 			tick = QGraphicsLineItem(x, ruler_y + ruler_h - 6, x, ruler_y + ruler_h)
 			tick.setPen(QPen(QColor("#aaaaaa"), 1))
 			self._scene.addItem(tick)
-			label = QGraphicsSimpleTextItem(t.strftime("%d.%m.%Y\n%H:%M"))
-			label.setPos(x - 30, ruler_y + 2)
-			label.setBrush(QBrush(QColor("#aaaaaa")))
-			f = QFont("Segoe UI", 7)
-			label.setFont(f)
-			self._scene.addItem(label)
+			if i % label_every == 0 or i == num_ticks:
+				label = QGraphicsSimpleTextItem(t.strftime("%d.%m.%Y\n%H:%M"))
+				label.setPos(x - 30, ruler_y + 2)
+				label.setBrush(QBrush(QColor("#aaaaaa")))
+				f = QFont("Segoe UI", 7)
+				label.setFont(f)
+				self._scene.addItem(label)
 
 		self._scene.setSceneRect(0, 0, scene_w, scene_h)
 		self._legend_widget.setText(

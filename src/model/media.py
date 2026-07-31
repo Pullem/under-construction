@@ -150,6 +150,10 @@ class MediaMixin:
 				return []
 
 		num_thumbs = max(1, int(duration / interval_sec))
+		# Maximal 30 Frames pro Video extrahieren (gleichmäßig über die Dauer verteilt)
+		if num_thumbs > 30:
+			num_thumbs = 30
+			interval_sec = duration / num_thumbs
 		# Extraktions-Zeitpunkte
 		time_points = [i * interval_sec for i in range(num_thumbs)]
 
