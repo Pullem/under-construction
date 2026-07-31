@@ -394,14 +394,17 @@ class CopyMoveWorker(QRunnable):
 				{"algorithm": FLANN_INDEX_KDTREE, "trees": 5},
 				{"checks": 50}
 			)
-			matches = flann.knnMatch(desc, desc, k=2)
+			# k=3: pair[0] ist beim Self-Matching immer der Deskriptor selbst
+			# (Distanz 0) – Ratio-Test daher auf die beiden nächsten
+			# Nicht-Selbst-Nachbarn (pair[1], pair[2]) anwenden.
+			matches = flann.knnMatch(desc, desc, k=3)
 
 			# 3) Ratio-Test + Self-Match + Distanz-Filter
 			good = []
 			for pair in matches:
-				if len(pair) < 2:
+				if len(pair) < 3:
 					continue
-				m, n = pair
+				m, n = pair[1], pair[2]
 				if m.queryIdx == m.trainIdx:
 					continue
 				if m.distance < self.params["ratio"] * n.distance:
@@ -422,7 +425,23 @@ class CopyMoveWorker(QRunnable):
 							pairs.append((kp[m.queryIdx], kp[m.trainIdx]))
 
 			if not pairs:
-				pairs = [(kp[m.queryIdx], kp[m.trainIdx]) for m in good[:200]]
+				# Ohne räumlich konsistente Inlier keine Kopier-Region zeichnen
+				# (rohe Matches ergeben nur bei strukturierten Bildern Fehlalarme).
+				self.signals.result.emit(
+					"copymove",
+					f"Copy-Move-Analyse: {Path(self.filepath).name}\n"
+					f"{'-' * 50}\n"
+					f"Empfindlichkeit: {self.sensitivity} "
+					f"(ratio={self.params['ratio']}, dist={self.params['spatial_dist']})\n"
+					f"SIFT-Features: {len(kp)}\n"
+					f"Matched (Ratio-Test): {len(good)}\n"
+					f"RANSAC-Inlier: 0\n"
+					f"Ergebnis: Keine konsistente Transformationsgruppe (RANSAC) gefunden\n"
+					f"→ vermutlich keine Copy-Move-Manipulation oder zu glatte/komprimierte Region.",
+					"",
+					"",
+				)
+				return
 
 			# 5) Visualisierung
 			vis = np.array(src)
