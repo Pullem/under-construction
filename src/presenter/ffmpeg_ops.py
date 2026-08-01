@@ -5,7 +5,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QProcess, QThreadPool
 
 from ..model.base import BASE_DIR
-from ..worker import FfprobeWorker, ElaWorker, CopyMoveWorker
+from ..worker import FfprobeWorker, ElaWorker, CopyMoveWorker, ResamplingWorker
 
 
 class FfmpegOpsMixin:
@@ -345,11 +345,21 @@ class FfmpegOpsMixin:
 			self._start_copymove(filepath, prefix)
 			return
 
-		if mode in ("resample", "jpeggrid"):
-			self._ffmpeg_log_probe(f"{mode} – noch nicht implementiert.")
+		if mode == "resample":
+			self._ffmpeg_log_probe("Starte resample (async)...")
+			exports_dir = Path(self.model.current_case_path) / "exports" if self.model.current_case_path else Path()
+			exports_dir.mkdir(parents=True, exist_ok=True)
+			worker = ResamplingWorker(filepath, str(exports_dir))
+			worker.signals.result.connect(self._on_analysis_result)
+			worker.signals.error.connect(self._on_analysis_error)
+			self.threadpool.start(worker)
+			return
+
+		if mode == "jpeggrid":
+			self._ffmpeg_log_probe("jpeggrid – noch nicht implementiert.")
 			result_widget = getattr(self.view, f'{prefix}_result', None)
 			if result_widget:
-				result_widget.setPlainText(f"{mode} – noch nicht implementiert")
+				result_widget.setPlainText("jpeggrid – noch nicht implementiert")
 			return
 
 		cmd = self._build_ffprobe_cmd(filepath, mode)

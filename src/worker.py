@@ -476,3 +476,195 @@ class CopyMoveWorker(QRunnable):
 			import traceback
 			traceback.print_exc()
 			self.signals.error.emit("copymove", str(e))
+
+
+class ResamplingWorkerSignals(QObject):
+	result = pyqtSignal(str, str, str, str)  # mode, text_result, error_map_path, hist_path
+	error = pyqtSignal(str, str)
+
+
+class ResamplingWorker(QRunnable):
+	"""Resampling-/Rausch-Analyse: Interpolations-Residual + FFT-Periodizität
+	(Resampling-Erkennung) und blockweise Rausch-Konsistenz (Splicing-Hinweis)."""
+
+	MAX_ANALYSIS_DIM = 4096
+	BLOCK_SIZE = 32
+	CV_THRESHOLD = 0.5
+
+	def __init__(self, filepath, exports_dir):
+		super().__init__()
+		self.filepath = filepath
+		self.exports_dir = Path(exports_dir)
+		self.signals = ResamplingWorkerSignals()
+
+	def run(self):
+		try:
+			from PIL import Image, ImageOps
+			import numpy as np
+			import cv2
+			import matplotlib
+			matplotlib.use("Agg")
+			import matplotlib.pyplot as plt
+
+			stem = Path(self.filepath).stem
+			src = ImageOps.exif_transpose(Image.open(self.filepath)).convert("RGB")
+			gray = np.array(src.convert("L"), dtype=np.float32)
+			h, w = gray.shape
+
+			scaled = False
+			max_dim = max(h, w)
+			if max_dim > self.MAX_ANALYSIS_DIM:
+				scale = self.MAX_ANALYSIS_DIM / max_dim
+				gray = cv2.resize(gray, (int(w * scale), int(h * scale)),
+								  interpolation=cv2.INTER_AREA)
+				h, w = gray.shape
+				scaled = True
+
+			# ---- Rauschschätzung (Hochpass über Gaussian-Filter) ----
+			blur = cv2.GaussianBlur(gray, (0, 0), 1.5)
+			high = gray - blur
+			med = float(np.median(high))
+			sigma_noise = float(1.4826 * np.median(np.abs(high - med)))
+			signal_power = float(np.mean((gray - float(gray.mean())) ** 2))
+			snr_db = float(10.0 * np.log10(max(signal_power, 1e-12) / max(sigma_noise ** 2, 1e-12)))
+
+			# ---- Blockweise Rauschkarte (Inkonsistenzen) ----
+			bs = self.BLOCK_SIZE
+			b_rows = (h + bs - 1) // bs
+			b_cols = (w + bs - 1) // bs
+			noise_map = np.full((b_rows, b_cols), np.nan, dtype=np.float32)
+			for by in range(b_rows):
+				y0, y1 = by * bs, min((by + 1) * bs, h)
+				for bx in range(b_cols):
+					x0, x1 = bx * bs, min((bx + 1) * bs, w)
+					block = high[y0:y1, x0:x1]
+					if block.size > (bs * bs) // 2:
+						noise_map[by, bx] = float(block.std())
+			valid = noise_map[~np.isnan(noise_map)]
+			if valid.size == 0:
+				valid = np.array([sigma_noise], dtype=np.float32)
+			noise_mean = float(valid.mean())
+			noise_std = float(valid.std())
+			cv_coeff = noise_std / max(noise_mean, 1e-12)
+
+			# ---- Resampling-Erkennung: Interpolations-Residual + FFT ----
+			res = gray - 0.25 * (
+				np.roll(gray, -1, 0) + np.roll(gray, 1, 0) +
+				np.roll(gray, -1, 1) + np.roll(gray, 1, 1))
+			res = res - float(res.mean())
+
+			F = np.fft.fftshift(np.fft.fft2(res))
+			P = np.abs(F) ** 2
+			cy, cx = h // 2, w // 2
+			cut_r = max(4, min(h, w) // 40)
+			max_r = min(h, w) * 0.45
+			yy, xx = np.mgrid[0:h, 0:w]
+			r = np.sqrt((yy - cy) ** 2 + (xx - cx) ** 2)
+			# Kanten (Letterbox, Rahmen, helle Stufen) erzeugen Spektral-Linien
+			# genau auf den Achsen – diese Bänder ausschließen, um Fehlalarme zu
+			# vermeiden. Resampling-Rotation erzeugt Peaks abseits der Achsen.
+			du = np.abs(xx - cx)
+			dv = np.abs(yy - cy)
+			ring = (r >= cut_r) & (r <= max_r) & (du > 3) & (dv > 3)
+			P_ring = P[ring]
+			mu = float(P_ring.mean())
+			sd = float(P_ring.std())
+			if sd > 0:
+				kurtosis = float(np.mean((P_ring - mu) ** 4) / (sd ** 4 + 1e-12))
+				peak_frac = float((P_ring > mu + 10 * sd).mean())
+			else:
+				kurtosis, peak_frac = 1.0, 0.0
+			spectral_peakiness = kurtosis / 20.0
+
+			# 1D-Periodizität der Zeilen/Spalten-Profile (Skalierungs-Artefakte).
+			# Nur das mittlere Frequenzband (5–95 % der Nyquist-Frequenz, also
+			# Perioden von 2–20 px): Stufenkanten (Splicing-Seams, Letterbox)
+			# liegen im sehr niedrigen Frequenzbereich und würden sonst
+			# fälschlich als Skalierung gewertet.
+			def _band_periodicity(profile):
+				p = np.abs(np.fft.rfft(profile - float(profile.mean())))[1:]
+				n = len(p)
+				band = p[int(n * 0.05):int(n * 0.95)]
+				if band.size == 0:
+					return 0.0
+				return float(band.max() / (band.mean() + 1e-12))
+
+			profile_periodicity = max(
+				_band_periodicity(np.abs(res).mean(axis=1)),
+				_band_periodicity(np.abs(res).mean(axis=0)))
+
+			# ---- Verdicts ----
+			resample_suspect = (spectral_peakiness > 2.5) or (profile_periodicity > 10.0)
+			resample_verdict = (
+				"⚠️  Verdacht auf Resampling (Skalierung/Rotation)" if resample_suspect
+				else "Keine auffälligen Resampling-Artefakte")
+			noise_suspect = cv_coeff > self.CV_THRESHOLD
+			noise_verdict = (
+				"⚠️  Inkonsistentes Rauschniveau – Hinweis auf Compositing/Splicing "
+				"oder stark variierende Bildbereiche"
+				if noise_suspect else "Gleichmäßiges Rauschniveau")
+
+			# ---- Visualisierung: Residual + Rauschkarte ----
+			errormap_path = self.exports_dir / f"{stem}_resample_errormap.png"
+			fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), facecolor="#1e1e1e")
+			v_lim = max(1e-6, 3.0 * sigma_noise)
+			im0 = axes[0].imshow(res, cmap="coolwarm", vmin=-v_lim, vmax=v_lim)
+			axes[0].set_title("Interpolations-Residual (Resampling)", color="#ccc", fontsize=10)
+			axes[0].axis("off")
+			axes[0].tick_params(colors="#ccc")
+			fig.colorbar(im0, ax=axes[0], fraction=0.046)
+			im1 = axes[1].imshow(noise_map, cmap="plasma",
+				vmin=0.0, vmax=max(1e-6, float(np.nanpercentile(noise_map, 95))),
+				aspect="auto")
+			axes[1].set_title(f"Rausch-Niveau-Karte (Block {bs}px)", color="#ccc", fontsize=10)
+			axes[1].axis("off")
+			axes[1].tick_params(colors="#ccc")
+			fig.colorbar(im1, ax=axes[1], fraction=0.046)
+			fig.savefig(str(errormap_path), dpi=150, bbox_inches="tight")
+			plt.close(fig)
+
+			# ---- Visualisierung: Rausch-Verteilung ----
+			hist_path = self.exports_dir / f"{stem}_resample_histogram.png"
+			fig, ax = plt.subplots(figsize=(7, 3.5), facecolor="#1e1e1e")
+			ax.hist(valid, bins=40, color="#0f0", alpha=0.8)
+			ax.axvline(sigma_noise, color="#ff9900", linestyle="--", linewidth=1.5,
+				label=f"global σ ≈ {sigma_noise:.2f}")
+			ax.set_xlabel("Rauschniveau (Std-Abweichung)", color="#ccc")
+			ax.set_ylabel("Anzahl Blöcke", color="#ccc")
+			ax.set_title(f"Rausch-Verteilung über Bildblöcke — {Path(self.filepath).name}", color="#ccc")
+			ax.tick_params(colors="#ccc")
+			ax.grid(axis="y", alpha=0.3)
+			ax.legend(facecolor="#2a2a2a", labelcolor="#ccc")
+			fig.tight_layout()
+			fig.savefig(str(hist_path), dpi=150)
+			plt.close(fig)
+
+			# ---- Report ----
+			analysis_size = f"{w}×{h}" + (" (auf max. 4096 px begrenzt)" if scaled else "")
+			text = (
+				f"Resampling/Rauschen-Analyse: {Path(self.filepath).name}\n"
+				f"{'-' * 50}\n"
+				f"[Resampling]\n"
+				f"Analysierte Auflösung: {analysis_size}\n"
+				f"Spektrum-Peakiness: {spectral_peakiness:.2f} "
+				f"(Kurtosis {kurtosis:.1f}, Peak-Anteil {peak_frac * 100:.2f}%)\n"
+				f"Zeilen/Spalten-Periodizität: {profile_periodicity:.1f}\n"
+				f"Ergebnis: {resample_verdict}\n"
+				f"\n"
+				f"[Rauschen]\n"
+				f"Geschätztes Rauschen (σ): {sigma_noise:.2f}\n"
+				f"SNR: {snr_db:.1f} dB\n"
+				f"Blockgröße: {bs}px\n"
+				f"Rauschlevel: Mittel {noise_mean:.2f}, Std {noise_std:.2f}, "
+				f"Variationskoeffizient {cv_coeff:.2f}\n"
+				f"Ergebnis: {noise_verdict}\n"
+				f"\n"
+				f"Error-Map: {errormap_path}\n"
+				f"Histogram: {hist_path}\n"
+			)
+			self.signals.result.emit("resample", text, str(errormap_path), str(hist_path))
+
+		except Exception as e:
+			import traceback
+			traceback.print_exc()
+			self.signals.error.emit("resample", str(e))
