@@ -375,6 +375,7 @@ def build_media_tab(view, name, prefix, is_video):
 			result_tabs.addTab(tab_w, tab_title)
 
 		setattr(view, f"{prefix}_result_tabs", result_tabs)
+		result_tabs.tabBar().setVisible(False)
 		left_layout.addWidget(result_tabs, 1)
 
 	splitter.addWidget(left_widget)
