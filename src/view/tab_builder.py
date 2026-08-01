@@ -271,7 +271,10 @@ def build_media_tab(view, name, prefix, is_video):
 	left_widget = QWidget()
 	left_layout = QVBoxLayout(left_widget)
 	left_layout.setContentsMargins(0, 0, 4, 0)
-	left_layout.addWidget(QLabel("<b>Analysen</b>"))
+	if is_video:
+		left_layout.addWidget(QLabel("<b>Analysen</b>"))
+	else:
+		layout.addWidget(QLabel("<b>Analysen</b>"))
 
 	if is_video:
 		analyses = [
@@ -300,7 +303,7 @@ def build_media_tab(view, name, prefix, is_video):
 		btn = QPushButton(title)
 		btn.clicked.connect(lambda checked, m=mode: view._on_ffprobe_analyse(m))
 		setattr(view, f"{prefix}_btn_{mode}", btn)
-		analysis_toolbar.addWidget(btn)
+		analysis_toolbar.addWidget(btn, 1 if not is_video else 0)
 
 	if not is_video:
 		analysis_toolbar.addStretch()
@@ -313,7 +316,10 @@ def build_media_tab(view, name, prefix, is_video):
 		setattr(view, f"{prefix}_sensitivity", sens)
 		analysis_toolbar.addWidget(sens)
 
-	left_layout.addLayout(analysis_toolbar)
+	if not is_video:
+		layout.addLayout(analysis_toolbar)
+	else:
+		left_layout.addLayout(analysis_toolbar)
 
 	# Plugin-Buttons (zweite Reihe)
 	plugin_toolbar = QHBoxLayout()
@@ -322,14 +328,17 @@ def build_media_tab(view, name, prefix, is_video):
 		plugin_items = [(f"v{i}", f"Dummy V{i}") for i in range(1, 7)]
 	else:
 		plugin_items = [("histogramm", "Histogramm/Gamma")] + \
-			[(f"b{i}", f"Dummy B{i}") for i in range(2, 7)]
+			[(f"b{i}", f"Dummy B{i}") for i in range(2, 9)]
 	for mode, title in plugin_items:
 		btn = QPushButton(title)
 		btn.setStyleSheet("border: 1px solid #555;")
 		btn.clicked.connect(lambda checked, m=mode: view._on_plugin_btn_clicked(m))
 		setattr(view, f"{prefix}_pbtn_{mode}", btn)
-		plugin_toolbar.addWidget(btn)
-	left_layout.addLayout(plugin_toolbar)
+		plugin_toolbar.addWidget(btn, 1 if not is_video else 0)
+	if not is_video:
+		layout.addLayout(plugin_toolbar)
+	else:
+		left_layout.addLayout(plugin_toolbar)
 
 	analysis_result = QPlainTextEdit()
 	analysis_result.setReadOnly(True)
