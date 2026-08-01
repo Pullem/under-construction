@@ -335,7 +335,38 @@ def build_media_tab(view, name, prefix, is_video):
 	analysis_result.setReadOnly(True)
 	analysis_result.setStyleSheet("background: #111; color: #0f0; font-family: Consolas; font-size: 9pt;")
 	setattr(view, f"{prefix}_result", analysis_result)
-	left_layout.addWidget(analysis_result, 3)
+
+	if is_video:
+		left_layout.addWidget(analysis_result, 3)
+	else:
+		# Bilder: großes Ergebnis-Display links (ELA/Copy-Move/…), Terminal rechts
+		result_tabs = QTabWidget()
+		result_tabs.setDocumentMode(True)
+
+		tab_modes = [
+			("ela", "ELA"),
+			("copymove", "Copy-Move"),
+			("resample", "Resampling/Rauschen"),
+			("jpeggrid", "JPEG Grid"),
+		]
+		for tab_mode, tab_title in tab_modes:
+			tab_w = QWidget()
+			tab_ly = QVBoxLayout(tab_w)
+			tab_ly.setContentsMargins(2, 2, 2, 2)
+			err_map = QLabel(f"{tab_title}\n–")
+			err_map.setAlignment(Qt.AlignmentFlag.AlignCenter)
+			err_map.setStyleSheet("border: 1px solid #444; background: #111; color: #666; font-size: 10pt;")
+			setattr(view, f"{prefix}_tab_{tab_mode}_error_map", err_map)
+			tab_ly.addWidget(err_map, 1)
+			hist = QLabel()
+			hist.setAlignment(Qt.AlignmentFlag.AlignCenter)
+			hist.setStyleSheet("border: 1px solid #444; background: #111; color: #666;")
+			setattr(view, f"{prefix}_tab_{tab_mode}_histogram", hist)
+			tab_ly.addWidget(hist, 1)
+			result_tabs.addTab(tab_w, tab_title)
+
+		setattr(view, f"{prefix}_result_tabs", result_tabs)
+		left_layout.addWidget(result_tabs, 1)
 
 	splitter.addWidget(left_widget)
 
@@ -385,38 +416,12 @@ def build_media_tab(view, name, prefix, is_video):
 		right_widget = QWidget()
 		right_layout = QVBoxLayout(right_widget)
 		right_layout.setContentsMargins(4, 0, 0, 0)
-
-		result_tabs = QTabWidget()
-		result_tabs.setDocumentMode(True)
-
-		tab_modes = [
-			("ela", "ELA"),
-			("copymove", "Copy-Move"),
-			("resample", "Resampling/Rauschen"),
-			("jpeggrid", "JPEG Grid"),
-		]
-		for tab_mode, tab_title in tab_modes:
-			tab_w = QWidget()
-			tab_ly = QVBoxLayout(tab_w)
-			tab_ly.setContentsMargins(2, 2, 2, 2)
-			err_map = QLabel(f"{tab_title}\n–")
-			err_map.setAlignment(Qt.AlignmentFlag.AlignCenter)
-			err_map.setStyleSheet("border: 1px solid #444; background: #111; color: #666; font-size: 10pt;")
-			setattr(view, f"{prefix}_tab_{tab_mode}_error_map", err_map)
-			tab_ly.addWidget(err_map, 1)
-			hist = QLabel()
-			hist.setAlignment(Qt.AlignmentFlag.AlignCenter)
-			hist.setStyleSheet("border: 1px solid #444; background: #111; color: #666;")
-			setattr(view, f"{prefix}_tab_{tab_mode}_histogram", hist)
-			tab_ly.addWidget(hist, 1)
-			result_tabs.addTab(tab_w, tab_title)
-
-		setattr(view, f"{prefix}_result_tabs", result_tabs)
-		right_layout.addWidget(result_tabs, 1)
+		right_layout.addWidget(QLabel("<b>Terminal</b>"))
+		right_layout.addWidget(analysis_result, 1)
 
 		splitter.addWidget(right_widget)
-		splitter.setStretchFactor(0, 1)
-		splitter.setStretchFactor(1, 2)
+		splitter.setStretchFactor(0, 3)
+		splitter.setStretchFactor(1, 1)
 
 	layout.addWidget(splitter, 1)
 
