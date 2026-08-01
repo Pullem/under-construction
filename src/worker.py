@@ -3,6 +3,7 @@ import json
 import subprocess
 import traceback
 from pathlib import Path
+import numpy as np
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject
 import exiftool
 from pymediainfo import MediaInfo
@@ -668,3 +669,251 @@ class ResamplingWorker(QRunnable):
 			import traceback
 			traceback.print_exc()
 			self.signals.error.emit("resample", str(e))
+
+
+class JpegGridWorkerSignals(QObject):
+	result = pyqtSignal(str, str, str, str)  # mode, text_result, error_map_path, hist_path
+	error = pyqtSignal(str, str)
+
+
+class JpegGridWorker(QRunnable):
+	"""JPEG-Grid-Analyse: erkennt das 8×8-DCT-Blockraster der JPEG-Kompression
+	und prüft die bildweite Raster-Ausrichtung. Regionen mit abweichendem
+	Raster-Offset deuten auf Neu-Kompression, Crop/Splicing oder Compositing hin."""
+
+	BLOCK = 8
+	MIN_DIM = 16
+	# Sharpness = (bester Score - zweitbester Score) / internal, gemittelt über
+	# x/y. Echte JPEG-Raster ≥ ~0.09, Rauschboden (weißes Rauschen, geglättet)
+	# ≤ ~0.035, schwaches JPEG-Raster ~0.04-0.07.
+	GRID_STRONG_THRESHOLD = 0.045
+	MIN_STRONG_FRACTION = 0.15
+	DEVIATION_RATIO = 0.10
+
+	def __init__(self, filepath, exports_dir):
+		super().__init__()
+		self.filepath = filepath
+		self.exports_dir = Path(exports_dir)
+		self.signals = JpegGridWorkerSignals()
+
+	def _scores_aligned(self, diff, start, axis):
+		"""Blockiness-Scores aller 8 Offsets. start = globaler Versatz des
+		Regionsbeginns entlang der Achse (0 für das ganze Bild).
+		Blockgrenzen bei Offset o liegen auf Index j ≡ o-1 (mod 8)."""
+		total = float(diff.mean())
+		scores = []
+		internals = []
+		for o in range(8):
+			if axis == 1:
+				sel = diff[:, (o - 1 - start) % 8::8]
+			else:
+				sel = diff[(o - 1 - start) % 8::8, :]
+			if sel.size == 0:
+				scores.append(0.0)
+				internals.append(total)
+				continue
+			b = float(sel.mean())
+			frac = sel.size / diff.size
+			internal = (total - frac * b) / (1 - frac) if frac < 1 else 0.0
+			scores.append(b - internal)
+			internals.append(internal)
+		return scores, internals
+
+	def _blockiness_map(self, gray, ox, oy):
+		"""Blockiness pro 8×8-Zelle (vektorisiert), ausgerichtet am erkannten Offset."""
+		B = self.BLOCK
+		gx = np.abs(np.diff(gray, axis=1))
+		gy = np.abs(np.diff(gray, axis=0))
+		sx0 = ox % B
+		sy0 = oy % B
+		n_cols = (gx.shape[1] - sx0) // B
+		n_rows = (gy.shape[0] - sy0) // B
+		if n_cols < 1 or n_rows < 1:
+			return None
+		gx_c = gx[sy0:sy0 + n_rows * B, sx0:sx0 + n_cols * B]
+		gy_c = gy[sy0:sy0 + n_rows * B, sx0:sx0 + n_cols * B]
+		gx4 = gx_c.reshape(n_rows, B, n_cols, B)
+		gy4 = gy_c.reshape(n_rows, B, n_cols, B)
+		bound_v = gx4[:, :, :, -1].mean(axis=1)
+		int_v = gx4[:, :, :, :-1].mean(axis=(1, 3))
+		bound_h = gy4[:, -1, :, :].mean(axis=2)
+		int_h = gy4[:, :-1, :, :].mean(axis=(1, 3))
+		return np.clip((bound_v - int_v) + (bound_h - int_h), 0, None)
+
+	def _region_consistency(self, gx, gy, region):
+		"""Per-Region Raster-Offset + Sharpness (Spitzenwert des Blockiness-Score-
+		Verlaufs). Sharpness ≥ GRID_STRONG_THRESHOLD → Region hat ein echtes
+		Raster; bei Rauschen bleibt sie nahe 0 (alle 8 Offsets gleich flach)."""
+		H, _ = gx.shape
+		We = gy.shape[1]
+		regions = []
+		for y0 in range(0, H, region):
+			for x0 in range(0, We, region):
+				y1 = min(y0 + region, H)
+				x1 = min(x0 + region, We)
+				if y1 - y0 < self.MIN_DIM or x1 - x0 < self.MIN_DIM:
+					continue
+				gxr = gx[y0:y1, x0:x1]
+				gyr = gy[y0:y1, x0:x1]
+				if gyr.shape[0] < 2:
+					continue
+				sx, ix = self._scores_aligned(gxr, x0, 1)
+				sy, iy = self._scores_aligned(gyr, y0, 0)
+				rox = int(np.argmax(sx))
+				roy = int(np.argmax(sy))
+				s2x = float(np.partition(sx, -2)[-2])
+				s2y = float(np.partition(sy, -2)[-2])
+				sharp_x = (sx[rox] - s2x) / (ix[rox] + 1e-9)
+				sharp_y = (sy[roy] - s2y) / (iy[roy] + 1e-9)
+				strength = 0.5 * (sharp_x + sharp_y)
+				regions.append((y0, x0, y1, x1, rox, roy, strength))
+		return regions
+
+	def run(self):
+		try:
+			from PIL import Image, ImageOps
+			import matplotlib
+			matplotlib.use("Agg")
+			import matplotlib.pyplot as plt
+
+			stem = Path(self.filepath).stem
+			src = ImageOps.exif_transpose(Image.open(self.filepath)).convert("RGB")
+			gray = np.array(src.convert("L"), dtype=np.float32)
+			h, w = gray.shape
+
+			if min(h, w) < self.MIN_DIM:
+				self.signals.result.emit(
+					"jpeggrid",
+					f"JPEG-Grid-Analyse: {Path(self.filepath).name}\n"
+					f"{'-' * 50}\n"
+					f"Bild zu klein für eine Raster-Analyse ({w}×{h}).",
+					"", "")
+				return
+
+			gx = np.abs(np.diff(gray, axis=1))
+			gy = np.abs(np.diff(gray, axis=0))
+
+			sx, ix = self._scores_aligned(gx, 0, 1)
+			sy, iy = self._scores_aligned(gy, 0, 0)
+			ox = int(np.argmax(sx))
+			oy = int(np.argmax(sy))
+			rel_x = sx[ox] / (ix[ox] + 1e-9)
+			rel_y = sy[oy] / (iy[oy] + 1e-9)
+			global_strength = 0.5 * (rel_x + rel_y)
+
+			# Regionen-basierte Erkennung: dominanter Offset der starken Regionen
+			# (robust gegen nicht-komprimierte Bereiche, die den globalen Wert
+			# verwässern).
+			region = max(128, min(256, max(h, w) // 10))
+			regions = self._region_consistency(gx, gy, region)
+			strong = [r for r in regions if r[6] >= self.GRID_STRONG_THRESHOLD]
+			if strong:
+				offs = np.array([(r[4], r[5]) for r in strong])
+				vals, counts = np.unique(offs, axis=0, return_counts=True)
+				ox, oy = int(vals[int(np.argmax(counts))][0]), int(vals[int(np.argmax(counts))][1])
+				global_strength = float(np.mean([r[6] for r in strong]))
+			n_strong = len(strong)
+			n_deviating = sum(1 for r in strong if (r[4], r[5]) != (ox, oy))
+			n_weak = len(regions) - n_strong
+			grid_detected = (n_strong >= 1 and
+				n_strong / max(1, len(regions)) >= self.MIN_STRONG_FRACTION)
+
+			block = self._blockiness_map(gray, ox, oy) if grid_detected else None
+
+			if not grid_detected:
+				verdict = ("Kein 8×8-Blockraster erkennbar "
+						   "(keine JPEG-Kompression oder stark geglättet)")
+			elif n_deviating > 0 and n_strong > 0 and \
+					n_deviating / n_strong > self.DEVIATION_RATIO:
+				verdict = (f"⚠️  Abweichendes Raster in {n_deviating} von {n_strong} "
+						   "starken Regionen – Hinweis auf Neu-Kompression/Crop/Splicing")
+			else:
+				verdict = f"Konsistentes Blockraster (Offset x={ox}, y={oy})"
+
+			# ---- Visualisierung ----
+			errormap_path = self.exports_dir / f"{stem}_jpeggrid_errormap.png"
+			hist_path = self.exports_dir / f"{stem}_jpeggrid_histogram.png"
+
+			if block is not None and block.size > 0:
+				fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), facecolor="#1e1e1e")
+				vmax = max(1e-6, float(np.percentile(block, 98)))
+				im0 = axes[0].imshow(block, cmap="inferno", vmin=0.0, vmax=vmax, aspect="auto")
+				axes[0].set_title(f"Blockiness-Karte (8×8-Zellen)", color="#ccc", fontsize=10)
+				axes[0].axis("off")
+				axes[0].tick_params(colors="#ccc")
+				fig.colorbar(im0, ax=axes[0], fraction=0.046)
+
+				# Regions-Overlay (grün konsistent, rot abweichend, grau schwach)
+				g_c = gray[:block.shape[0] * 8, :block.shape[1] * 8]
+				g_down = g_c.reshape(block.shape[0], 8, block.shape[1], 8).mean(axis=(1, 3))
+				overlay = np.zeros((*block.shape, 3), dtype=np.float32)
+				alpha = np.zeros(block.shape, dtype=np.float32)
+				for (y0, x0, y1, x1, rox, roy, rstrength) in regions:
+					cy0, cx0 = y0 // 8, x0 // 8
+					cy1, cx1 = (y1 + 7) // 8, (x1 + 7) // 8
+					cy1 = min(cy1, block.shape[0]); cx1 = min(cx1, block.shape[1])
+					if cy1 <= cy0 or cx1 <= cx0:
+						continue
+					if rstrength >= self.GRID_STRONG_THRESHOLD:
+						color = (0.0, 0.8, 0.0) if (rox, roy) == (ox, oy) else (0.9, 0.1, 0.1)
+					else:
+						color = (0.5, 0.5, 0.5)
+					overlay[cy0:cy1, cx0:cx1] = color
+					alpha[cy0:cy1, cx0:cx1] = 0.55
+				axes[1].imshow(g_down, cmap="gray")
+				axes[1].imshow(overlay, alpha=alpha)
+				axes[1].set_title("Raster-Konsistenz (Regionen)", color="#ccc", fontsize=10)
+				axes[1].axis("off")
+				axes[1].tick_params(colors="#ccc")
+				fig.savefig(str(errormap_path), dpi=150, bbox_inches="tight")
+				plt.close(fig)
+
+				fig, ax = plt.subplots(figsize=(7, 3.5), facecolor="#1e1e1e")
+				ax.hist(block.ravel(), bins=60, color="#0f0", alpha=0.8)
+				ax.axvline(float(block.mean()), color="#ff9900", linestyle="--",
+					label=f"Ø Blockiness {block.mean():.2f}")
+				ax.set_xlabel("Blockiness", color="#ccc")
+				ax.set_ylabel("Anzahl Zellen", color="#ccc")
+				ax.set_title(f"Blockiness-Verteilung — {Path(self.filepath).name}", color="#ccc")
+				ax.tick_params(colors="#ccc")
+				ax.grid(axis="y", alpha=0.3)
+				ax.legend(facecolor="#2a2a2a", labelcolor="#ccc")
+				fig.tight_layout()
+				fig.savefig(str(hist_path), dpi=150)
+				plt.close(fig)
+			else:
+				fig, ax = plt.subplots(figsize=(9, 4), facecolor="#1e1e1e")
+				ax.text(0.5, 0.5, "Kein JPEG-Blockraster erkannt",
+					ha="center", va="center", color="#ccc", fontsize=14)
+				ax.axis("off")
+				fig.savefig(str(errormap_path), dpi=150, bbox_inches="tight")
+				plt.close(fig)
+				fig, ax = plt.subplots(figsize=(7, 3.5), facecolor="#1e1e1e")
+				ax.text(0.5, 0.5, "–", ha="center", va="center", color="#666", fontsize=12)
+				ax.axis("off")
+				fig.savefig(str(hist_path), dpi=150, bbox_inches="tight")
+				plt.close(fig)
+
+			# ---- Report ----
+			block_mean = float(block.mean()) if block is not None and block.size else 0.0
+			block_max = float(block.max()) if block is not None and block.size else 0.0
+			text = (
+				f"JPEG-Grid-Analyse: {Path(self.filepath).name}\n"
+				f"{'-' * 50}\n"
+				f"Auflösung: {w}×{h}\n"
+				f"Blockraster: {'8×8-DCT-Raster' if grid_detected else 'nicht erkannt'} "
+				f"(Offset x={ox}, y={oy}, Stärke {global_strength:.3f})\n"
+				f"Blockiness: Mittel {block_mean:.2f}, Max {block_max:.2f}\n"
+				f"Regionen: {len(regions)} gesamt, {n_strong} stark, "
+				f"{n_deviating} abweichend, {n_weak} schwach/unbestimmt\n"
+				f"Ergebnis: {verdict}\n"
+				f"\n"
+				f"Error-Map: {errormap_path}\n"
+				f"Histogram: {hist_path}\n"
+			)
+			self.signals.result.emit("jpeggrid", text, str(errormap_path), str(hist_path))
+
+		except Exception as e:
+			import traceback
+			traceback.print_exc()
+			self.signals.error.emit("jpeggrid", str(e))
