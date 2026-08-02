@@ -452,42 +452,40 @@ class FfmpegOpsMixin:
 	def _on_ffprobe_error(self, mode, error_msg):
 		self._ffmpeg_log_probe(f"Fehler bei {mode}: {error_msg}")
 
-	def _on_ela_result(self, mode, text_result, error_map_path, hist_path):
+	def _on_ela_result(self, mode, text_result, data):
 		self._ffmpeg_log_probe("ELA-Analyse abgeschlossen.")
 		p = getattr(self, '_last_probe_prefix', 'video')
 		result_widget = getattr(self.view, f'{p}_result', None)
 		if result_widget:
 			result_widget.setPlainText(text_result)
-		self._set_result_image(p, "ela", "error_map", error_map_path)
-		self._set_result_image(p, "ela", "histogram", hist_path)
-		self._switch_to_tab(p, "ela")
+		self._switch_to_tab(p, mode)
+		self.view.show_analysis_result(p, mode, data)
+		self._export_analysis_figures(p, mode)
 
-	def _on_analysis_result(self, mode, text_result, error_map_path, hist_path):
+	def _on_analysis_result(self, mode, text_result, data):
 		self._copymove_running = False
 		self._ffmpeg_log_probe(f"{mode}-Analyse abgeschlossen.")
 		p = getattr(self, '_last_probe_prefix', 'video')
 		result_widget = getattr(self.view, f'{p}_result', None)
 		if result_widget:
 			result_widget.setPlainText(text_result)
-		if error_map_path:
-			self._set_result_image(p, mode, "error_map", error_map_path)
-		if hist_path:
-			self._set_result_image(p, mode, "histogram", hist_path)
 		self._switch_to_tab(p, mode)
+		self.view.show_analysis_result(p, mode, data)
+		self._export_analysis_figures(p, mode)
 
-	def _set_result_image(self, prefix, mode, image_type, path):
-		attr = f"{prefix}_tab_{mode}_{image_type}"
-		label = getattr(self.view, attr, None)
-		if label is None or not os.path.exists(path):
+	def _export_analysis_figures(self, prefix, mode):
+		filepath = getattr(self, '_last_probe_path', None)
+		if not filepath:
 			return
-		from PyQt6.QtGui import QPixmap
-		pixmap = QPixmap(path)
-		if not pixmap.isNull():
-			label.setPixmap(pixmap.scaled(
-				label.width(), label.height(),
-				Qt.AspectRatioMode.KeepAspectRatio,
-				Qt.TransformationMode.SmoothTransformation))
-			label.setVisible(True)
+		exports_dir = Path(self.model.current_case_path) / "exports" \
+			if self.model.current_case_path else Path()
+		exports_dir.mkdir(parents=True, exist_ok=True)
+		stem = Path(filepath).stem
+		# Layout der soeben sichtbar geschalteten Tabs aktivieren, damit der
+		# ImageExporter eine gültige Szene-Größe rendern kann.
+		from PyQt6.QtWidgets import QApplication
+		QApplication.processEvents()
+		self.view.export_analysis_figures(prefix, mode, stem, str(exports_dir))
 
 	def _switch_to_tab(self, prefix, mode):
 		tabs = getattr(self.view, f"{prefix}_result_tabs", None)

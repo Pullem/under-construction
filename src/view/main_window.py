@@ -312,6 +312,18 @@ class MainWindowMixin(QMainWindow):
 			return
 		self.sensitivity_requested.emit(path, prefix)
 
+	def show_analysis_result(self, prefix, mode, data):
+		widget = getattr(self, f"{prefix}_tab_{mode}", None)
+		if widget is None or data is None:
+			return
+		widget.show_result(data)
+
+	def export_analysis_figures(self, prefix, mode, stem, exports_dir):
+		widget = getattr(self, f"{prefix}_tab_{mode}", None)
+		if widget is None:
+			return "", ""
+		return widget.export_analysis(stem, exports_dir)
+
 	def _on_meta_search(self, query):
 		if hasattr(self, "search_metadata_tables"):
 			self.search_metadata_tables(query)

@@ -152,7 +152,7 @@ class FfprobeWorker(QRunnable):
 
 
 class ElaWorkerSignals(QObject):
-	result = pyqtSignal(str, str, str, str)  # mode, text_result, error_map_path, hist_path
+	result = pyqtSignal(str, str, object)  # mode, text_result, data
 	error = pyqtSignal(str, str)             # mode, error_msg
 
 
@@ -251,9 +251,6 @@ class ElaWorker(QRunnable):
 		try:
 			from PIL import Image, ImageOps
 			import numpy as np
-			import matplotlib
-			matplotlib.use("Agg")
-			import matplotlib.pyplot as plt
 
 			stem = Path(self.filepath).stem
 			src = ImageOps.exif_transpose(Image.open(self.filepath)).convert("RGB")
@@ -275,32 +272,6 @@ class ElaWorker(QRunnable):
 			std_err = float(diff.std())
 			pct_altered = altered / total_pixels * 100
 
-			# Error distribution map
-			errormap_path = self.exports_dir / f"{stem}_ela_errormap.png"
-			fig, ax = plt.subplots(figsize=(8, 6), facecolor="#1e1e1e")
-			vmax = max(1, max_err)
-			im = ax.imshow(diff, cmap="hot", vmin=0, vmax=vmax)
-			ax.set_title("ELA Error Distribution", color="#ccc", fontsize=12)
-			ax.axis("off")
-			cbar = fig.colorbar(im, ax=ax, label="Error-Level")
-			cbar.ax.tick_params(colors="#ccc")
-			cbar.set_label("Error-Level", color="#ccc")
-			fig.savefig(str(errormap_path), dpi=150, bbox_inches="tight")
-			plt.close(fig)
-
-			# Error histogram
-			hist_path = self.exports_dir / f"{stem}_ela_histogram.png"
-			fig, ax = plt.subplots(figsize=(6, 3), facecolor="#1e1e1e")
-			ax.hist(diff.ravel(), bins=256, range=(0, 255), color="#0f0", alpha=0.8)
-			ax.set_xlabel("Error-Level", color="#ccc")
-			ax.set_ylabel("Pixel", color="#ccc")
-			ax.set_title(f"ELA Histogram — {Path(self.filepath).name}", color="#ccc")
-			ax.tick_params(colors="#ccc")
-			ax.grid(axis="y", alpha=0.3)
-			fig.tight_layout()
-			fig.savefig(str(hist_path), dpi=150)
-			plt.close(fig)
-
 			# Clean up temp
 			if temp_jpeg.exists():
 				temp_jpeg.unlink()
@@ -314,12 +285,21 @@ class ElaWorker(QRunnable):
 				f"Mittlerer Fehler: {mean_err:.2f}\n"
 				f"Std-Abweichung: {std_err:.2f}\n"
 				f"Veränderte Pixel: {altered} / {total_pixels} ({pct_altered:.1f}%)\n"
-				f"\n"
-				f"Error-Map: {errormap_path}\n"
-				f"Histogram: {hist_path}\n"
 			)
 
-			self.signals.result.emit("ela", text, str(errormap_path), str(hist_path))
+			data = {
+				"diff": diff,
+				"stats": {
+					"quality": self.quality,
+					"max_err": max_err,
+					"mean_err": mean_err,
+					"std_err": std_err,
+					"altered": altered,
+					"total_pixels": total_pixels,
+					"pct_altered": pct_altered,
+				},
+			}
+			self.signals.result.emit("ela", text, data)
 
 		except Exception as e:
 			self.signals.error.emit("ela", str(e))
@@ -351,7 +331,7 @@ SENSITIVITY_PRESETS = {
 
 
 class CopyMoveWorkerSignals(QObject):
-	result = pyqtSignal(str, str, str, str)  # mode, text_result, result_image_path, _unused
+	result = pyqtSignal(str, str, object)  # mode, text_result, data
 	error = pyqtSignal(str, str)
 
 
@@ -386,7 +366,7 @@ class CopyMoveWorker(QRunnable):
 					f"{'-' * 50}\n"
 					f"Zu wenig Features ({len(kp) if kp is not None else 0} gefunden, min 8)."
 				)
-				self.signals.result.emit("copymove", text, "", "")
+				self.signals.result.emit("copymove", text, {"vis": None})
 				return
 
 			# 2) FLANN-Matcher (self-match)
@@ -439,8 +419,7 @@ class CopyMoveWorker(QRunnable):
 					f"RANSAC-Inlier: 0\n"
 					f"Ergebnis: Keine konsistente Transformationsgruppe (RANSAC) gefunden\n"
 					f"→ vermutlich keine Copy-Move-Manipulation oder zu glatte/komprimierte Region.",
-					"",
-					"",
+					{"vis": None},
 				)
 				return
 
@@ -454,9 +433,6 @@ class CopyMoveWorker(QRunnable):
 				cv2.circle(vis, (int(qk.pt[0]), int(qk.pt[1])), 4, (255, 0, 0), -1)
 				cv2.circle(vis, (int(tk.pt[0]), int(tk.pt[1])), 4, (0, 0, 255), -1)
 
-			cm_path = self.exports_dir / f"{stem}_copymove.png"
-			cv2.imwrite(str(cm_path), cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
-
 			# 6) Report
 			verdict = "⚠️  Copy-Move verdächtig" if len(pairs) > self.params["verdict_threshold"] else "Keine offensichtliche Copy-Move erkannt"
 			text = (
@@ -468,10 +444,8 @@ class CopyMoveWorker(QRunnable):
 				f"Matched (Ratio-Test): {len(good)}\n"
 				f"RANSAC-Inlier: {len(pairs)}\n"
 				f"Ergebnis: {verdict}\n"
-				f"\n"
-				f"Visualisierung: {cm_path}\n"
 			)
-			self.signals.result.emit("copymove", text, str(cm_path), "")
+			self.signals.result.emit("copymove", text, {"vis": vis})
 
 		except Exception as e:
 			import traceback
@@ -480,7 +454,7 @@ class CopyMoveWorker(QRunnable):
 
 
 class ResamplingWorkerSignals(QObject):
-	result = pyqtSignal(str, str, str, str)  # mode, text_result, error_map_path, hist_path
+	result = pyqtSignal(str, str, object)  # mode, text_result, data
 	error = pyqtSignal(str, str)
 
 
@@ -503,9 +477,6 @@ class ResamplingWorker(QRunnable):
 			from PIL import Image, ImageOps
 			import numpy as np
 			import cv2
-			import matplotlib
-			matplotlib.use("Agg")
-			import matplotlib.pyplot as plt
 
 			stem = Path(self.filepath).stem
 			src = ImageOps.exif_transpose(Image.open(self.filepath)).convert("RGB")
@@ -555,7 +526,7 @@ class ResamplingWorker(QRunnable):
 			res = res - float(res.mean())
 
 			F = np.fft.fftshift(np.fft.fft2(res))
-			P = np.abs(F) ** 2
+			P = np.abs(F).astype(np.float64) ** 2
 			cy, cx = h // 2, w // 2
 			cut_r = max(4, min(h, w) // 40)
 			max_r = min(h, w) * 0.45
@@ -571,8 +542,9 @@ class ResamplingWorker(QRunnable):
 			mu = float(P_ring.mean())
 			sd = float(P_ring.std())
 			if sd > 0:
-				kurtosis = float(np.mean((P_ring - mu) ** 4) / (sd ** 4 + 1e-12))
-				peak_frac = float((P_ring > mu + 10 * sd).mean())
+				z = (P_ring - mu) / sd
+				kurtosis = float(np.mean(z ** 4))
+				peak_frac = float((z > 10.0).mean())
 			else:
 				kurtosis, peak_frac = 1.0, 0.0
 			spectral_peakiness = kurtosis / 20.0
@@ -606,39 +578,8 @@ class ResamplingWorker(QRunnable):
 				if noise_suspect else "Gleichmäßiges Rauschniveau")
 
 			# ---- Visualisierung: Residual + Rauschkarte ----
-			errormap_path = self.exports_dir / f"{stem}_resample_errormap.png"
-			fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), facecolor="#1e1e1e")
 			v_lim = max(1e-6, 3.0 * sigma_noise)
-			im0 = axes[0].imshow(res, cmap="coolwarm", vmin=-v_lim, vmax=v_lim)
-			axes[0].set_title("Interpolations-Residual (Resampling)", color="#ccc", fontsize=10)
-			axes[0].axis("off")
-			axes[0].tick_params(colors="#ccc")
-			fig.colorbar(im0, ax=axes[0], fraction=0.046)
-			im1 = axes[1].imshow(noise_map, cmap="plasma",
-				vmin=0.0, vmax=max(1e-6, float(np.nanpercentile(noise_map, 95))),
-				aspect="auto")
-			axes[1].set_title(f"Rausch-Niveau-Karte (Block {bs}px)", color="#ccc", fontsize=10)
-			axes[1].axis("off")
-			axes[1].tick_params(colors="#ccc")
-			fig.colorbar(im1, ax=axes[1], fraction=0.046)
-			fig.savefig(str(errormap_path), dpi=150, bbox_inches="tight")
-			plt.close(fig)
-
-			# ---- Visualisierung: Rausch-Verteilung ----
-			hist_path = self.exports_dir / f"{stem}_resample_histogram.png"
-			fig, ax = plt.subplots(figsize=(7, 3.5), facecolor="#1e1e1e")
-			ax.hist(valid, bins=40, color="#0f0", alpha=0.8)
-			ax.axvline(sigma_noise, color="#ff9900", linestyle="--", linewidth=1.5,
-				label=f"global σ ≈ {sigma_noise:.2f}")
-			ax.set_xlabel("Rauschniveau (Std-Abweichung)", color="#ccc")
-			ax.set_ylabel("Anzahl Blöcke", color="#ccc")
-			ax.set_title(f"Rausch-Verteilung über Bildblöcke — {Path(self.filepath).name}", color="#ccc")
-			ax.tick_params(colors="#ccc")
-			ax.grid(axis="y", alpha=0.3)
-			ax.legend(facecolor="#2a2a2a", labelcolor="#ccc")
-			fig.tight_layout()
-			fig.savefig(str(hist_path), dpi=150)
-			plt.close(fig)
+			noise_vmax = max(1e-6, float(np.nanpercentile(noise_map, 95)))
 
 			# ---- Report ----
 			analysis_size = f"{w}×{h}" + (" (auf max. 4096 px begrenzt)" if scaled else "")
@@ -659,11 +600,29 @@ class ResamplingWorker(QRunnable):
 				f"Rauschlevel: Mittel {noise_mean:.2f}, Std {noise_std:.2f}, "
 				f"Variationskoeffizient {cv_coeff:.2f}\n"
 				f"Ergebnis: {noise_verdict}\n"
-				f"\n"
-				f"Error-Map: {errormap_path}\n"
-				f"Histogram: {hist_path}\n"
 			)
-			self.signals.result.emit("resample", text, str(errormap_path), str(hist_path))
+			data = {
+				"res": res,
+				"noise_map": noise_map,
+				"sigma_noise": sigma_noise,
+				"block_size": bs,
+				"v_lim": v_lim,
+				"noise_vmax": noise_vmax,
+				"metrics": {
+					"spectral_peakiness": spectral_peakiness,
+					"kurtosis": kurtosis,
+					"peak_frac": peak_frac,
+					"profile_periodicity": profile_periodicity,
+					"snr_db": snr_db,
+					"noise_mean": noise_mean,
+					"noise_std": noise_std,
+					"cv_coeff": cv_coeff,
+					"scaled": scaled,
+					"width": w,
+					"height": h,
+				},
+			}
+			self.signals.result.emit("resample", text, data)
 
 		except Exception as e:
 			import traceback
@@ -672,7 +631,7 @@ class ResamplingWorker(QRunnable):
 
 
 class JpegGridWorkerSignals(QObject):
-	result = pyqtSignal(str, str, str, str)  # mode, text_result, error_map_path, hist_path
+	result = pyqtSignal(str, str, object)  # mode, text_result, data
 	error = pyqtSignal(str, str)
 
 
@@ -772,9 +731,7 @@ class JpegGridWorker(QRunnable):
 	def run(self):
 		try:
 			from PIL import Image, ImageOps
-			import matplotlib
-			matplotlib.use("Agg")
-			import matplotlib.pyplot as plt
+			import numpy as np
 
 			stem = Path(self.filepath).stem
 			src = ImageOps.exif_transpose(Image.open(self.filepath)).convert("RGB")
@@ -787,7 +744,7 @@ class JpegGridWorker(QRunnable):
 					f"JPEG-Grid-Analyse: {Path(self.filepath).name}\n"
 					f"{'-' * 50}\n"
 					f"Bild zu klein für eine Raster-Analyse ({w}×{h}).",
-					"", "")
+					{"block": None})
 				return
 
 			gx = np.abs(np.diff(gray, axis=1))
@@ -830,69 +787,24 @@ class JpegGridWorker(QRunnable):
 			else:
 				verdict = f"Konsistentes Blockraster (Offset x={ox}, y={oy})"
 
-			# ---- Visualisierung ----
-			errormap_path = self.exports_dir / f"{stem}_jpeggrid_errormap.png"
-			hist_path = self.exports_dir / f"{stem}_jpeggrid_histogram.png"
+			# ---- Visualisierung (Daten für pyqtgraph-View) ----
+			block_vmax = max(1e-6, float(np.percentile(block, 98))) \
+				if block is not None and block.size else 0.0
 
-			if block is not None and block.size > 0:
-				fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), facecolor="#1e1e1e")
-				vmax = max(1e-6, float(np.percentile(block, 98)))
-				im0 = axes[0].imshow(block, cmap="inferno", vmin=0.0, vmax=vmax, aspect="auto")
-				axes[0].set_title(f"Blockiness-Karte (8×8-Zellen)", color="#ccc", fontsize=10)
-				axes[0].axis("off")
-				axes[0].tick_params(colors="#ccc")
-				fig.colorbar(im0, ax=axes[0], fraction=0.046)
-
-				# Regions-Overlay (grün konsistent, rot abweichend, grau schwach)
-				g_c = gray[:block.shape[0] * 8, :block.shape[1] * 8]
-				g_down = g_c.reshape(block.shape[0], 8, block.shape[1], 8).mean(axis=(1, 3))
-				overlay = np.zeros((*block.shape, 3), dtype=np.float32)
-				alpha = np.zeros(block.shape, dtype=np.float32)
-				for (y0, x0, y1, x1, rox, roy, rstrength) in regions:
-					cy0, cx0 = y0 // 8, x0 // 8
-					cy1, cx1 = (y1 + 7) // 8, (x1 + 7) // 8
-					cy1 = min(cy1, block.shape[0]); cx1 = min(cx1, block.shape[1])
-					if cy1 <= cy0 or cx1 <= cx0:
-						continue
-					if rstrength >= self.GRID_STRONG_THRESHOLD:
-						color = (0.0, 0.8, 0.0) if (rox, roy) == (ox, oy) else (0.9, 0.1, 0.1)
-					else:
-						color = (0.5, 0.5, 0.5)
-					overlay[cy0:cy1, cx0:cx1] = color
-					alpha[cy0:cy1, cx0:cx1] = 0.55
-				axes[1].imshow(g_down, cmap="gray")
-				axes[1].imshow(overlay, alpha=alpha)
-				axes[1].set_title("Raster-Konsistenz (Regionen)", color="#ccc", fontsize=10)
-				axes[1].axis("off")
-				axes[1].tick_params(colors="#ccc")
-				fig.savefig(str(errormap_path), dpi=150, bbox_inches="tight")
-				plt.close(fig)
-
-				fig, ax = plt.subplots(figsize=(7, 3.5), facecolor="#1e1e1e")
-				ax.hist(block.ravel(), bins=60, color="#0f0", alpha=0.8)
-				ax.axvline(float(block.mean()), color="#ff9900", linestyle="--",
-					label=f"Ø Blockiness {block.mean():.2f}")
-				ax.set_xlabel("Blockiness", color="#ccc")
-				ax.set_ylabel("Anzahl Zellen", color="#ccc")
-				ax.set_title(f"Blockiness-Verteilung — {Path(self.filepath).name}", color="#ccc")
-				ax.tick_params(colors="#ccc")
-				ax.grid(axis="y", alpha=0.3)
-				ax.legend(facecolor="#2a2a2a", labelcolor="#ccc")
-				fig.tight_layout()
-				fig.savefig(str(hist_path), dpi=150)
-				plt.close(fig)
-			else:
-				fig, ax = plt.subplots(figsize=(9, 4), facecolor="#1e1e1e")
-				ax.text(0.5, 0.5, "Kein JPEG-Blockraster erkannt",
-					ha="center", va="center", color="#ccc", fontsize=14)
-				ax.axis("off")
-				fig.savefig(str(errormap_path), dpi=150, bbox_inches="tight")
-				plt.close(fig)
-				fig, ax = plt.subplots(figsize=(7, 3.5), facecolor="#1e1e1e")
-				ax.text(0.5, 0.5, "–", ha="center", va="center", color="#666", fontsize=12)
-				ax.axis("off")
-				fig.savefig(str(hist_path), dpi=150, bbox_inches="tight")
-				plt.close(fig)
+			# Regions-Overlay auf Original-Auflösung
+			# (grün konsistent, rot abweichend, grau schwach)
+			overlay = np.zeros((h, w, 3), dtype=np.float32)
+			alpha = np.zeros((h, w), dtype=np.float32)
+			for (y0, x0, y1, x1, rox, roy, rstrength) in regions:
+				y1 = min(y1, h); x1 = min(x1, w)
+				if y1 <= y0 or x1 <= x0:
+					continue
+				if rstrength >= self.GRID_STRONG_THRESHOLD:
+					color = (0.0, 0.8, 0.0) if (rox, roy) == (ox, oy) else (0.9, 0.1, 0.1)
+				else:
+					color = (0.5, 0.5, 0.5)
+				overlay[y0:y1, x0:x1] = color
+				alpha[y0:y1, x0:x1] = 0.55
 
 			# ---- Report ----
 			block_mean = float(block.mean()) if block is not None and block.size else 0.0
@@ -907,11 +819,27 @@ class JpegGridWorker(QRunnable):
 				f"Regionen: {len(regions)} gesamt, {n_strong} stark, "
 				f"{n_deviating} abweichend, {n_weak} schwach/unbestimmt\n"
 				f"Ergebnis: {verdict}\n"
-				f"\n"
-				f"Error-Map: {errormap_path}\n"
-				f"Histogram: {hist_path}\n"
 			)
-			self.signals.result.emit("jpeggrid", text, str(errormap_path), str(hist_path))
+			data = {
+				"block": block,
+				"gray": np.asarray(src.convert("L"), dtype=np.uint8),
+				"overlay": overlay,
+				"alpha": alpha,
+				"grid_detected": grid_detected,
+				"ox": ox,
+				"oy": oy,
+				"strength": global_strength,
+				"block_mean": block_mean,
+				"block_max": block_max,
+				"block_vmax": block_vmax,
+				"regions": regions,
+				"n_strong": n_strong,
+				"n_deviating": n_deviating,
+				"n_weak": n_weak,
+				"width": w,
+				"height": h,
+			}
+			self.signals.result.emit("jpeggrid", text, data)
 
 		except Exception as e:
 			import traceback
