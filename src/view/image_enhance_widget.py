@@ -7,9 +7,9 @@ from PIL import Image, ImageOps
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider,
-    QPushButton, QSplitter, QFileDialog, QMessageBox
+    QPushButton, QSplitter, QFileDialog, QMessageBox, QCheckBox, QSpinBox
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QRectF
 from PyQt6.QtGui import QPixmap
 
 
@@ -32,7 +32,7 @@ class ImageEnhanceWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        # Top: side-by-side previews
+        # Top: side-by-side previews + waveform in the middle
         self._top_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._processed_view = QLabel("Prozessiert")
         self._processed_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -40,10 +40,62 @@ class ImageEnhanceWidget(QWidget):
         self._original_view = QLabel("Original")
         self._original_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._original_view.setStyleSheet("border: 1px solid #444; background: #111; color: #666; font-size: 11pt;")
+
+        wf_panel = QWidget()
+        wf_lay = QVBoxLayout(wf_panel)
+        wf_lay.setContentsMargins(0, 0, 0, 0)
+        wf_lay.setSpacing(4)
+
+        wf_controls = QHBoxLayout()
+        wf_controls.setSpacing(6)
+        self._wf_all = QCheckBox("Alle Zeilen überlagern")
+        self._wf_all.setChecked(True)
+        self._wf_all.toggled.connect(self._on_wf_mode)
+        wf_controls.addWidget(self._wf_all)
+        wf_controls.addSpacing(8)
+        wf_controls.addWidget(QLabel("Zeile:"))
+        self._wf_line = QSpinBox()
+        self._wf_line.setRange(0, 0)
+        self._wf_line.setEnabled(False)
+        self._wf_line.valueChanged.connect(self._on_wf_line)
+        wf_controls.addWidget(self._wf_line)
+        self._wf_line_val = QLabel("0")
+        self._wf_line_val.setFixedWidth(50)
+        wf_controls.addWidget(self._wf_line_val)
+        self._wf_density = QCheckBox("Dichte-Hintergrund")
+        self._wf_density.setChecked(True)
+        self._wf_density.toggled.connect(self._on_wf_mode)
+        wf_controls.addWidget(self._wf_density)
+        wf_controls.addStretch()
+        wf_lay.addLayout(wf_controls)
+
+        self._wf_plot = pg.PlotWidget()
+        self._wf_plot.setBackground('#111111')
+        self._wf_plot.setLabel('left', 'Luma', color='#aaa', fontsize=9)
+        self._wf_plot.setLabel('bottom', 'Spalte', color='#aaa', fontsize=9)
+        self._wf_plot.setTitle('Luminanz-Waveform', color='#ccc', size='10pt')
+        self._wf_plot.showGrid(x=False, y=True, alpha=0.15)
+        self._wf_plot.setXRange(0, 1, padding=0)
+        self._wf_plot.setYRange(0, 1, padding=0)
+        self._wf_plot.getAxis('bottom').setPen(pg.mkPen('#444'))
+        self._wf_plot.getAxis('left').setPen(pg.mkPen('#444'))
+        self._wf_plot.getAxis('bottom').setTextPen(pg.mkPen('#aaa'))
+        self._wf_plot.getAxis('left').setTextPen(pg.mkPen('#aaa'))
+        self._wf_img = pg.ImageItem(axisOrder='row-major')
+        self._wf_img.setColorMap(pg.colormap.getFromMatplotlib('hot'))
+        self._wf_plot.addItem(self._wf_img)
+        self._wf_curve = pg.PlotCurveItem(pen=pg.mkPen('#00ff88', width=1.5))
+        self._wf_curve.setVisible(False)
+        self._wf_plot.addItem(self._wf_curve)
+        wf_lay.addWidget(self._wf_plot, 1)
+
         self._top_splitter.addWidget(self._processed_view)
+        self._top_splitter.addWidget(wf_panel)
         self._top_splitter.addWidget(self._original_view)
         self._top_splitter.setStretchFactor(0, 1)
         self._top_splitter.setStretchFactor(1, 1)
+        self._top_splitter.setStretchFactor(2, 1)
+        self._top_splitter.setSizes([600, 600, 600])
         layout.addWidget(self._top_splitter, 3)
 
         # Bottom: controls + histogram
@@ -95,6 +147,7 @@ class ImageEnhanceWidget(QWidget):
         self._hist_plot.getAxis('left').setPen(pg.mkPen('#444'))
         self._hist_plot.getAxis('bottom').setTextPen(pg.mkPen('#aaa'))
         self._hist_plot.getAxis('left').setTextPen(pg.mkPen('#aaa'))
+
         blay.addWidget(self._hist_plot, 1)
 
         layout.addWidget(bottom, 2)
@@ -133,6 +186,14 @@ class ImageEnhanceWidget(QWidget):
                 pil = pil.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
             self._preview_arr = np.array(pil, dtype=np.float32) / 255.0
 
+            h = self._preview_arr.shape[0]
+            self._wf_line.blockSignals(True)
+            self._wf_line.setRange(0, max(h - 1, 0))
+            self._wf_line.setValue(0)
+            self._wf_line.blockSignals(False)
+            self._wf_line_val.setText("0")
+            self._wf_all.setChecked(True)
+
             self._show_pixmap(self._original_view, self._preview_arr)
             self._update_preview()
         except Exception as e:
@@ -162,14 +223,24 @@ class ImageEnhanceWidget(QWidget):
         if self._preview_arr is None:
             return
         processed = self._process(self._preview_arr)
-        self._show_pixmap(self._processed_view, processed)
+        row = self._wf_line.value() if not self._wf_all.isChecked() else None
+        self._show_pixmap(self._processed_view, processed, line_row=row)
         self._render_histogram(processed)
+        self._render_waveform(processed)
 
     # ── display helpers ─────────────────────────────────────
 
-    def _show_pixmap(self, label, arr_f32):
+    def _show_pixmap(self, label, arr_f32, line_row=None):
         data = (arr_f32 * 255).astype(np.uint8)
         h, w = data.shape[:2]
+        if line_row is not None and h > 0:
+            y = min(max(line_row, 0), h - 1)
+            for dy in (-1, 0, 1):
+                yy = y + dy
+                if 0 <= yy < h:
+                    data[yy, :, 0] = 0
+                    data[yy, :, 1] = 255
+                    data[yy, :, 2] = 136
         bio = BytesIO()
         Image.fromarray(data, 'RGB').save(bio, format='PNG')
         bio.seek(0)
@@ -193,6 +264,49 @@ class ImageEnhanceWidget(QWidget):
             self._curves['luma'] = self._hist_plot.plot(bins[:-1], hl, pen=pg.mkPen('#aaaaaa', width=1, style=Qt.PenStyle.DashLine))
         else:
             self._curves['luma'].setData(bins[:-1], hl)
+
+    def _render_waveform(self, arr):
+        NB = 256
+        PAD = 2
+        luma = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+        h, w = luma.shape
+        lq = (np.clip(luma, 0, 1) * (NB - 1)).astype(np.int32)
+        xs = np.arange(w)
+        flat = (lq * w + xs).ravel()
+        acc = np.bincount(flat, minlength=NB * w).reshape(NB, w).astype(np.float32)
+
+        if self._wf_all.isChecked():
+            self._wf_curve.setVisible(False)
+            self._show_density(acc, w, NB, PAD, dim=False)
+        else:
+            y = min(max(self._wf_line.value(), 0), h - 1)
+            self._wf_curve.setData(xs, luma[y])
+            self._wf_curve.setVisible(True)
+            if self._wf_density.isChecked():
+                self._show_density(acc, w, NB, PAD, dim=True)
+            else:
+                self._wf_img.setVisible(False)
+        self._wf_plot.setXRange(0, w, padding=0)
+        self._wf_plot.setYRange(0, 1, padding=0)
+
+    def _show_density(self, acc, w, NB, PAD, dim):
+        acc = np.pad(acc, ((PAD, PAD), (0, 0)), mode='edge')
+        top = max(float(acc.max()), 1.0)
+        if dim:
+            top *= 2.0
+        self._wf_img.setVisible(True)
+        self._wf_img.setImage(acc, autoLevels=False)
+        self._wf_img.setLevels([0.0, top])
+        self._wf_img.setRect(QRectF(0, 0, w, (NB + PAD - 1) / (NB - 1)))
+
+    def _on_wf_mode(self):
+        self._wf_line.setEnabled(not self._wf_all.isChecked())
+        self._wf_density.setEnabled(not self._wf_all.isChecked())
+        self._debounce.start(50)
+
+    def _on_wf_line(self, v):
+        self._wf_line_val.setText(str(v))
+        self._debounce.start(50)
 
     # ── actions ─────────────────────────────────────────────
 
@@ -220,7 +334,7 @@ class ImageEnhanceWindow(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent, Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint)
         self.setWindowTitle("Histogramm / Gamma")
-        self.resize(1280, 800)
+        self.resize(1920, 800)
         self._enhance = ImageEnhanceWidget(self)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

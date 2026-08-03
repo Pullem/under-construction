@@ -119,6 +119,8 @@ class AnalysisTabWidget(QWidget):
 		lut = None
 		if cmap_name:
 			lut = pg.HistogramLUTItem()
+			lut.axis.setVisible(False)
+			lut.setVisible(False)
 			lut.setImageItem(img)
 			self.map_widget.addItem(lut, row=0, col=col + 1)
 		self._plots.append(pi)
@@ -145,6 +147,7 @@ class AnalysisTabWidget(QWidget):
 			lut.gradient.setColorMap(pg.colormap.getFromMatplotlib(self._cmaps[index]))
 			lut.setLevels(vmin, vmax)
 			lut.setHistogramRange(vmin, vmax)
+			lut.setVisible(True)
 		self._set_plot_title(index, "")
 
 	def _set_plot_title(self, index, text):
@@ -153,6 +156,8 @@ class AnalysisTabWidget(QWidget):
 
 	def _set_placeholder(self, index, text):
 		self._images[index].setVisible(False)
+		if self._luts[index] is not None:
+			self._luts[index].setVisible(False)
 		self._set_plot_title(index, text)
 
 	def _set_histogram(self, x, y, title, xlabel, ylabel, marker=None):
