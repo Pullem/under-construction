@@ -433,6 +433,10 @@ class CopyMoveWorker(QRunnable):
 				cv2.circle(vis, (int(qk.pt[0]), int(qk.pt[1])), 4, (255, 0, 0), -1)
 				cv2.circle(vis, (int(tk.pt[0]), int(tk.pt[1])), 4, (0, 0, 255), -1)
 
+			shifts = np.array(
+				[[tk.pt[0] - qk.pt[0], tk.pt[1] - qk.pt[1]] for qk, tk in pairs],
+				dtype=np.float32)
+
 			# 6) Report
 			verdict = "⚠️  Copy-Move verdächtig" if len(pairs) > self.params["verdict_threshold"] else "Keine offensichtliche Copy-Move erkannt"
 			text = (
@@ -445,7 +449,7 @@ class CopyMoveWorker(QRunnable):
 				f"RANSAC-Inlier: {len(pairs)}\n"
 				f"Ergebnis: {verdict}\n"
 			)
-			self.signals.result.emit("copymove", text, {"vis": vis})
+			self.signals.result.emit("copymove", text, {"vis": vis, "shifts": shifts})
 
 		except Exception as e:
 			import traceback

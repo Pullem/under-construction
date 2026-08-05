@@ -9,8 +9,199 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider,
     QPushButton, QSplitter, QFileDialog, QMessageBox, QCheckBox, QSpinBox
 )
-from PyQt6.QtCore import Qt, QTimer, QRectF
+from PyQt6.QtCore import Qt, QTimer, QRectF, pyqtSignal
 from PyQt6.QtGui import QPixmap
+
+
+class ToneCurveEditor(pg.PlotWidget):
+    """Interaktive Tone-Curve (Kennlinie) mit ziehbaren Kontrollpunkten."""
+
+    changed = pyqtSignal()
+    feedback = pyqtSignal(str)
+
+    _HANDLE_TOL = 14.0
+    _DRAG_TOL = 5.0
+    _EDGE_GUARD = 0.05
+    _DUP_GUARD = 0.02
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setBackground('#111111')
+        self.setLabel('left', 'Ausgang', color='#aaa', fontsize=9)
+        self.setLabel('bottom', 'Eingang', color='#aaa', fontsize=9)
+        self.setTitle('Tone-Curve', color='#ccc', size='10pt')
+        self.showGrid(x=True, y=True, alpha=0.15)
+        self.setXRange(0, 1, padding=0)
+        self.setYRange(0, 1, padding=0)
+        self.setMouseEnabled(x=False, y=False)
+        for a in ('bottom', 'left'):
+            self.getAxis(a).setPen(pg.mkPen('#444'))
+            self.getAxis(a).setTextPen(pg.mkPen('#aaa'))
+
+        self._ref = pg.PlotCurveItem([0, 1], [0, 1], pen=pg.mkPen('#555', width=1, style=Qt.PenStyle.DashLine))
+        self.addItem(self._ref)
+
+        self._line = pg.PlotCurveItem(pen=pg.mkPen('#00ff88', width=2))
+        self.addItem(self._line)
+
+        self._handles = pg.ScatterPlotItem(size=15, brush=pg.mkBrush('#00ff88'), pen=pg.mkPen('#000000', width=1))
+        self._handles.setZValue(10)
+        self.addItem(self._handles)
+
+        self.plotItem.hideButtons()
+        self.plotItem.vb.setMenuEnabled(False)
+        self.viewport().setMouseTracking(True)
+        self._brush_default = pg.mkBrush('#00ff88')
+        self._brush_hover = pg.mkBrush('#aaffcc')
+        self._hover_idx = -1
+
+        self._pts = [(0.0, 0.0), (0.5, 0.5), (1.0, 1.0)]
+        self._drag = -1
+        self._press_idx = -1
+        self._press_pos = None
+        self._redraw()
+
+    def _redraw(self):
+        xs = [p[0] for p in self._pts]
+        ys = [p[1] for p in self._pts]
+        self._line.setData(xs, ys)
+        self._handles.setData(pos=[(x, y) for x, y in zip(xs, ys)])
+        self._apply_hover(self._drag if self._drag >= 0 else -1)
+
+    def curve(self):
+        xs = sorted(p[0] for p in self._pts)
+        ys = [p[1] for p in sorted(self._pts, key=lambda p: p[0])]
+        return np.array(xs, dtype=np.float64), np.array(ys, dtype=np.float64)
+
+    def set_points(self, pts):
+        self._pts = [(float(x), float(y)) for x, y in pts]
+        self._pts.sort(key=lambda p: p[0])
+        self._redraw()
+        self.changed.emit()
+
+    def reset(self):
+        self.set_points([(0.0, 0.0), (0.5, 0.5), (1.0, 1.0)])
+
+    def _scene_pos(self, ev):
+        return self.mapToScene(ev.position().toPoint())
+
+    def _view_pos(self, ev):
+        return self.plotItem.vb.mapSceneToView(self._scene_pos(ev))
+
+    def _scene_of(self, x, y):
+        return self.plotItem.vb.mapViewToScene(pg.Point(x, y))
+
+    def _apply_hover(self, idx):
+        self._hover_idx = idx
+        n = len(self._pts)
+        brushes = [self._brush_default] * n
+        if 0 <= idx < n:
+            brushes[idx] = self._brush_hover
+        self._handles.setBrush(brushes)
+
+    def _hit_handle(self, ev):
+        sp = self._scene_pos(ev)
+        best = -1
+        best_d = self._HANDLE_TOL
+        for i, (x, y) in enumerate(self._pts):
+            sp_i = self._scene_of(x, y)
+            d = ((sp - sp_i).x() ** 2 + (sp - sp_i).y() ** 2) ** 0.5
+            if d < best_d:
+                best_d = d
+                best = i
+        return best
+
+    def mousePressEvent(self, ev):
+        p = self._scene_pos(ev)
+        idx = self._hit_handle(ev)
+        if ev.button() == Qt.MouseButton.LeftButton:
+            # print(f"TC press L ({p.x():.3f},{p.y():.3f}) hit={idx}")
+            if idx >= 0:
+                self._press_idx = idx
+                self._press_pos = p
+                self._apply_hover(idx)
+                self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+                ev.accept()
+                return
+        elif ev.button() == Qt.MouseButton.RightButton:
+            # print(f"TC press R ({p.x():.3f},{p.y():.3f}) hit={idx}")
+            if idx >= 0 and len(self._pts) > 2:
+                x0, _ = self._pts[idx]
+                if self._EDGE_GUARD < x0 < 1.0 - self._EDGE_GUARD:
+                    self._pts.pop(idx)
+                    self._redraw()
+                    self.changed.emit()
+                    self.feedback.emit("Punkt entfernt")
+                    ev.accept()
+                    return
+                self.feedback.emit("Endpunkte (0 und 1) sind geschützt")
+                ev.accept()
+                return
+        super().mousePressEvent(ev)
+
+    def mouseMoveEvent(self, ev):
+        if self._press_idx >= 0 and self._drag < 0:
+            p = self._scene_pos(ev)
+            d = ((p - self._press_pos).x() ** 2 + (p - self._press_pos).y() ** 2) ** 0.5
+            if d > self._DRAG_TOL:
+                self._drag = self._press_idx
+        if self._drag >= 0:
+            pos = self._view_pos(ev)
+            idx = self._drag
+            lo = self._pts[idx - 1][0] if idx > 0 else 0.0
+            hi = self._pts[idx + 1][0] if idx < len(self._pts) - 1 else 1.0
+            x = min(max(pos.x(), lo), hi)
+            y = min(max(pos.y(), 0.0), 1.0)
+            self._pts[idx] = (float(x), float(y))
+            self._redraw()
+            self._apply_hover(idx)
+            self.changed.emit()
+            ev.accept()
+            return
+        if self._press_idx < 0:
+            idx = self._hit_handle(ev)
+            self._apply_hover(idx)
+            self.viewport().setCursor(Qt.CursorShape.OpenHandCursor if idx >= 0 else Qt.CursorShape.ArrowCursor)
+        super().mouseMoveEvent(ev)
+
+    def mouseReleaseEvent(self, ev):
+        if self._press_idx >= 0 or self._drag >= 0:
+            if self._drag >= 0:
+                x, y = self._pts[self._drag]
+                self.feedback.emit(f"Punkt ({x:.2f}, {y:.2f}) verschoben")
+            self._press_idx = -1
+            self._press_pos = None
+            self._drag = -1
+            self._apply_hover(-1)
+            self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+            ev.accept()
+            return
+        super().mouseReleaseEvent(ev)
+
+    def mouseDoubleClickEvent(self, ev):
+        if ev.button() == Qt.MouseButton.LeftButton and self._hit_handle(ev) < 0:
+            p = self._scene_pos(ev)
+            pos = self._view_pos(ev)
+            x = min(max(pos.x(), 0.0), 1.0)
+            y = min(max(pos.y(), 0.0), 1.0)
+            # print(f"TC dblclick ({p.x():.3f},{p.y():.3f}) -> data ({x:.3f},{y:.3f})")
+            if min(abs(x - px) for px, py in self._pts) >= self._DUP_GUARD:
+                self._pts.append((float(x), float(y)))
+                self._pts.sort(key=lambda p: p[0])
+                self._redraw()
+                self.changed.emit()
+                self.feedback.emit(f"Punkt bei ({x:.2f}, {y:.2f}) hinzugefügt")
+            else:
+                self.feedback.emit("Zu nah an vorhandenem Punkt")
+            ev.accept()
+            return
+        super().mouseDoubleClickEvent(ev)
+
+    def leaveEvent(self, event):
+        if self._press_idx < 0 and self._drag < 0:
+            self._apply_hover(-1)
+            self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+        super().leaveEvent(event)
 
 
 class ImageEnhanceWidget(QWidget):
@@ -135,6 +326,11 @@ class ImageEnhanceWidget(QWidget):
 
         blay.addWidget(ctrl, 1)
 
+        right = QWidget()
+        rlay = QVBoxLayout(right)
+        rlay.setContentsMargins(0, 0, 0, 0)
+        rlay.setSpacing(4)
+
         self._hist_plot = pg.PlotWidget()
         self._hist_plot.setBackground('#111111')
         self._hist_plot.setMinimumWidth(300)
@@ -147,8 +343,40 @@ class ImageEnhanceWidget(QWidget):
         self._hist_plot.getAxis('left').setPen(pg.mkPen('#444'))
         self._hist_plot.getAxis('bottom').setTextPen(pg.mkPen('#aaa'))
         self._hist_plot.getAxis('left').setTextPen(pg.mkPen('#aaa'))
+        rlay.addWidget(self._hist_plot, 3)
 
-        blay.addWidget(self._hist_plot, 1)
+        tone_panel = QWidget()
+        tlay = QVBoxLayout(tone_panel)
+        tlay.setContentsMargins(0, 0, 0, 0)
+        tlay.setSpacing(4)
+        tone_head = QHBoxLayout()
+        tone_head.setSpacing(6)
+        self._tone_enabled = QCheckBox("Tone-Curve aktiv")
+        self._tone_enabled.setChecked(True)
+        self._tone_enabled.toggled.connect(lambda: self._debounce.start(50))
+        tone_head.addWidget(self._tone_enabled)
+        tone_head.addStretch()
+        btn_tone_reset = QPushButton("Reset")
+        btn_tone_reset.clicked.connect(self._tone_curve_reset)
+        tone_head.addWidget(btn_tone_reset)
+        tlay.addLayout(tone_head)
+        self._tone_hint = QLabel("Ziehen = Punkt bewegen · Doppelklick = Punkt setzen · Rechtsklick = Punkt löschen")
+        self._tone_hint.setStyleSheet("color: #888; font-size: 9pt;")
+        tlay.addWidget(self._tone_hint)
+        self._tone_feedback = QLabel("")
+        self._tone_feedback.setStyleSheet("color: #00ff88; font-size: 9pt;")
+        tlay.addWidget(self._tone_feedback)
+        self._tone_fb_timer = QTimer(self)
+        self._tone_fb_timer.setSingleShot(True)
+        self._tone_fb_timer.timeout.connect(self._tone_feedback.clear)
+        self._tone_curve = ToneCurveEditor()
+        self._tone_curve.setMinimumHeight(150)
+        self._tone_curve.changed.connect(lambda: self._debounce.start(50))
+        self._tone_curve.feedback.connect(self._show_tone_feedback)
+        tlay.addWidget(self._tone_curve, 1)
+        rlay.addWidget(tone_panel, 2)
+
+        blay.addWidget(right, 1)
 
         layout.addWidget(bottom, 2)
 
@@ -216,6 +444,20 @@ class ImageEnhanceWidget(QWidget):
             img = np.power(np.maximum(img, 0), 1.0 / gamma)
         if ev != 0:
             img *= 2.0 ** ev
+
+        if self._tone_enabled.isChecked():
+            xs, ys = self._tone_curve.curve()
+            out = np.interp(img, xs, ys)
+            if len(xs) > 1:
+                lo = img < xs[0]
+                hi = img > xs[-1]
+                if np.any(lo):
+                    s0 = (ys[1] - ys[0]) / (xs[1] - xs[0])
+                    out[lo] = ys[0] + (img[lo] - xs[0]) * s0
+                if np.any(hi):
+                    s1 = (ys[-1] - ys[-2]) / (xs[-1] - xs[-2])
+                    out[hi] = ys[-1] + (img[hi] - xs[-1]) * s1
+            img = out
 
         return np.clip(img, 0, 1)
 
@@ -308,6 +550,13 @@ class ImageEnhanceWidget(QWidget):
         self._wf_line_val.setText(str(v))
         self._debounce.start(50)
 
+    def _tone_curve_reset(self):
+        self._tone_curve.reset()
+
+    def _show_tone_feedback(self, msg):
+        self._tone_feedback.setText(msg)
+        self._tone_fb_timer.start(2000)
+
     # ── actions ─────────────────────────────────────────────
 
     def _reset_params(self):
@@ -315,6 +564,7 @@ class ImageEnhanceWidget(QWidget):
             s.setValue(s.minimum() if s is self._s_lift else
                        s.minimum() if s is self._s_black else
                        100 if s is self._s_gamma else 0)
+        self._tone_curve.reset()
 
     def _export(self):
         if self._full_arr is None:

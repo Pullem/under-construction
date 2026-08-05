@@ -96,6 +96,19 @@ class AnalysisTabWidget(QWidget):
 
 		lay = QVBoxLayout(self)
 		lay.setContentsMargins(2, 2, 2, 2)
+
+		self._hist_toggle = None
+		if mode == "copymove":
+			head = QHBoxLayout()
+			self._hist_toggle = QPushButton("Vektor-Histogramm anzeigen")
+			self._hist_toggle.setCheckable(True)
+			self._hist_toggle.setEnabled(False)
+			self._hist_toggle.toggled.connect(self._on_hist_toggle)
+			head.addStretch()
+			head.addWidget(self._hist_toggle)
+			lay.addLayout(head)
+			self.hist_widget.hide()
+
 		lay.addWidget(self.map_widget, 1)
 		lay.addWidget(self.hist_widget, 1)
 
@@ -176,6 +189,11 @@ class AnalysisTabWidget(QWidget):
 		self._hist_marker.setVisible(False)
 		self.hist_widget.setTitle(title, color="#888", size="10pt")
 
+	def _on_hist_toggle(self, checked):
+		self.hist_widget.setVisible(checked)
+		self._hist_toggle.setText(
+			"Vektor-Histogramm verbergen" if checked else "Vektor-Histogramm anzeigen")
+
 	def _show_ela(self, data):
 		diff = data["diff"]
 		vmax = float(max(np.percentile(diff.ravel(), 99.9), 1.0))
@@ -190,10 +208,26 @@ class AnalysisTabWidget(QWidget):
 		if vis is None:
 			self._set_placeholder(0, "Keine konsistente Transformationsgruppe gefunden")
 			self._set_hist_placeholder("Copy-Move: keine Histogramm-Analyse")
+			if self._hist_toggle is not None:
+				self._hist_toggle.setChecked(False)
+				self._hist_toggle.setEnabled(False)
 			return
 		self._set_image(0, vis, 0, 255)
 		self._set_plot_title(0, "Copy-Move-Regionen")
-		self._set_hist_placeholder("Copy-Move-Visualisierung")
+		shifts = data.get("shifts")
+		if shifts is not None and len(shifts) > 0:
+			norms = np.linalg.norm(shifts, axis=1)
+			vals, edges = np.histogram(norms, bins=40)
+			self._set_histogram(edges[:-1], vals, "Copy-Move-Shift-Vektoren",
+								"Verschiebung (px)", "Anzahl Keypoint-Paare",
+								marker=float(np.median(norms)))
+			if self._hist_toggle is not None:
+				self._hist_toggle.setEnabled(True)
+		else:
+			self._set_hist_placeholder("Copy-Move: keine Shift-Vektoren")
+			if self._hist_toggle is not None:
+				self._hist_toggle.setChecked(False)
+				self._hist_toggle.setEnabled(False)
 
 	def _show_resample(self, data):
 		self._set_image(0, data["res"], -data["v_lim"], data["v_lim"])
