@@ -97,17 +97,20 @@ class AnalysisTabWidget(QWidget):
 		lay = QVBoxLayout(self)
 		lay.setContentsMargins(2, 2, 2, 2)
 
+		head = QHBoxLayout()
+		self._fit_button = QPushButton("Bild einpassen")
+		self._fit_button.clicked.connect(self._on_fit_view)
+		head.addWidget(self._fit_button)
+		head.addStretch()
 		self._hist_toggle = None
 		if mode == "copymove":
-			head = QHBoxLayout()
 			self._hist_toggle = QPushButton("Vektor-Histogramm anzeigen")
 			self._hist_toggle.setCheckable(True)
 			self._hist_toggle.setEnabled(False)
 			self._hist_toggle.toggled.connect(self._on_hist_toggle)
-			head.addStretch()
 			head.addWidget(self._hist_toggle)
-			lay.addLayout(head)
 			self.hist_widget.hide()
+		lay.addLayout(head)
 
 		lay.addWidget(self.map_widget, 1)
 		lay.addWidget(self.hist_widget, 1)
@@ -188,6 +191,10 @@ class AnalysisTabWidget(QWidget):
 		self._hist_curve.setData([], [])
 		self._hist_marker.setVisible(False)
 		self.hist_widget.setTitle(title, color="#888", size="10pt")
+
+	def _on_fit_view(self):
+		for pi in self._plots:
+			pi.getViewBox().autoRange()
 
 	def _on_hist_toggle(self, checked):
 		self.hist_widget.setVisible(checked)
