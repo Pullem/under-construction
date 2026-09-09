@@ -1,5 +1,5 @@
 import os
-from ..worker import AnalysisWorker
+from ..worker import AnalysisWorker, ScanWorker
 
 
 class ScanMixin:
@@ -9,11 +9,17 @@ class ScanMixin:
 			print(f"FEHLER: Ordner {folder} nicht gefunden.")
 			return
 
-		files = [f for f in os.listdir(folder) if f.lower().endswith(('.mp4', '.mov', '.jpg', '.png'))]
-		print(f"Scan gestartet... {len(files)} Dateien gefunden.")
+		print(f"Scan gestartet...")
+		
+		worker = ScanWorker(folder)
+		worker.signals.result.connect(self._on_scan_finished)
+		worker.signals.error.connect(self.on_analysis_error)
+		self.threadpool.start(worker)
 
+	def _on_scan_finished(self, files):
+		print(f"Scan abgeschlossen: {len(files)} Dateien gefunden.")
 		for f in files:
-			path = os.path.join(folder, f)
+			path = os.path.join(self.folder_evidence, f)
 			worker = AnalysisWorker(self.model, path)
 			worker.signals.result.connect(self.on_analysis_finished)
 			worker.signals.error.connect(self.on_analysis_error)

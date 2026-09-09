@@ -5,7 +5,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QProcess, QThreadPool
 
 from ..model.base import BASE_DIR
-from ..worker import FfprobeWorker, ElaWorker, CopyMoveWorker, ResamplingWorker, JpegGridWorker
+from ..worker import FfprobeWorker, ElaWorker, CopyMoveWorker, ResamplingWorker, JpegGridWorker, PostProcessWorker
 
 
 class FfmpegOpsMixin:
@@ -159,20 +159,24 @@ class FfmpegOpsMixin:
 
 		if exit_code == 0 and out_path and out_path.exists():
 			self._ffmpeg_log(f"Fertig: {out_path}")
-			# In DB registrieren
-			try:
-				info = self._scan_output(out_path)
-				if info:
-					self.model.save_to_db(
-						str(out_path), out_path.name,
-						info["hash"], info["metadata"], info["exif"]
-					)
-					self._ffmpeg_log(f"✓ In Datenbank registriert: {out_path.name}")
-					self.refresh_ui_list()
-			except Exception as e:
-				self._ffmpeg_log(f"Fehler bei DB-Registrierung: {e}")
+			# In DB registrieren (asynchron)
+			worker = PostProcessWorker(self.model, str(out_path))
+			worker.signals.result.connect(self._on_post_process_result)
+			worker.signals.error.connect(lambda e: self._ffmpeg_log(f"Post-Process Fehler: {e}"))
+			self.threadpool.start(worker)
 		elif exit_code != 0:
 			self._ffmpeg_log(f"ffmpeg beendet mit Fehler (Code {exit_code})")
+
+	def _on_post_process_result(self, info):
+		try:
+			self.model.save_to_db(
+				info["filepath"], os.path.basename(info["filepath"]),
+				info["hash"], info["metadata"], info["exif"]
+			)
+			self._ffmpeg_log(f"✓ In Datenbank registriert: {os.path.basename(info['filepath'])}")
+			self.refresh_ui_list()
+		except Exception as e:
+			self._ffmpeg_log(f"Fehler bei DB-Registrierung: {e}")
 
 	def handle_ffmpeg_abort(self):
 		if self._ffmpeg_proc and self._ffmpeg_proc.state() == QProcess.ProcessState.Running:
@@ -1075,33 +1079,6 @@ class FfmpegOpsMixin:
 			return float(out) if out else 0
 		except Exception:
 			return 0
-
-	def _scan_output(self, out_path):
-		try:
-			hash_val = self.model.calculate_hash(str(out_path))
-			mi_data = {}
-			exif_data = {}
-			try:
-				from pymediainfo import MediaInfo
-				mi = MediaInfo.parse(str(out_path))
-				mi_data = {t.track_type: t.to_data() for t in mi.tracks}
-			except Exception:
-				pass
-			try:
-				import exiftool
-				exif_path = str(BASE_DIR / "exiftool.exe")
-				if not os.path.exists(exif_path):
-					exif_path = str(BASE_DIR / "exiftool_files" / "exiftool.pl")
-				with exiftool.ExifToolHelper(executable=exif_path) as et:
-					meta = et.get_metadata(str(out_path))
-					if meta:
-						exif_data = meta[0]
-			except Exception:
-				pass
-			return {"hash": hash_val, "metadata": mi_data, "exif": exif_data}
-		except Exception as e:
-			self._ffmpeg_log(f"Scan fehlgeschlagen: {e}")
-			return None
 
 
 def update_progress(data, duration, view, prefix="video"):

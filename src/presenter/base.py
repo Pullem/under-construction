@@ -2,6 +2,7 @@ import json
 import os
 import time
 from PyQt6.QtCore import QThreadPool, Qt
+from ..worker import DbWorker
 
 
 def _guess_is_video(filename):
@@ -142,34 +143,50 @@ class PresenterBase:
 			self.folder_logs = self.case_path / "logs"
 
 	def handle_case_selected(self, case_id):
-		case = self.model.load_case(case_id)
-		if case:
-			self._init_case_paths()
-			self.view.set_case_path(str(self.case_path))
-			case_name = case.get("project_name", "Unbekannter Fall")
-			self.view.setWindowTitle(f"Forensic Analyzer – {case_name}")
-			self.view.set_case_name(case_name)
-			self.view.clear_metadata_display()
-			self.refresh_ui_list()
-			self.handle_open_timeline()
+		def _query(model):
+			return model.load_case(case_id)
+		
+		def _on_result(case):
+			if case:
+				self._init_case_paths()
+				self.view.set_case_path(str(self.case_path))
+				case_name = case.get("project_name", "Unbekannter Fall")
+				self.view.setWindowTitle(f"Forensic Analyzer – {case_name}")
+				self.view.set_case_name(case_name)
+				self.view.clear_metadata_display()
+				self.refresh_ui_list()
+				self.handle_open_timeline()
+		
+		worker = DbWorker(self.model, _query)
+		worker.signals.result.connect(_on_result)
+		worker.signals.error.connect(lambda e: print(f"Fall laden fehlgeschlagen: {e}"))
+		self.threadpool.start(worker)
 
 	def handle_create_case(self, name, desc, incident_at, incident_until=None):
-		try:
-			existing = self.model.load_cases()
+		def _check_existing(model):
+			return model.load_cases()
+		
+		def _on_check_existing(existing):
 			if any(c["project_name"] == name for c in existing):
 				from PyQt6.QtWidgets import QMessageBox
 				QMessageBox.warning(self.view, "Fehler", f"Ein Fall mit dem Namen „{name}“ existiert bereits.")
 				return
-			case_id = self.model.create_case(name, desc, incident_at, incident_until)
-			self._init_case_paths()
-			self.view.set_case_path(str(self.case_path))
-			self.view.set_case_name(name)
-			self.view.setWindowTitle(f"Forensic Analyzer – {name}")
-			self.refresh_ui_list()
-			self.refresh_case_list()
-			self.handle_open_timeline()
-		except Exception as e:
-			print(f"Fehler beim Erstellen des Falls: {e}")
+			try:
+				case_id = self.model.create_case(name, desc, incident_at, incident_until)
+				self._init_case_paths()
+				self.view.set_case_path(str(self.case_path))
+				self.view.set_case_name(name)
+				self.view.setWindowTitle(f"Forensic Analyzer – {name}")
+				self.refresh_ui_list()
+				self.refresh_case_list()
+				self.handle_open_timeline()
+			except Exception as e:
+				print(f"Fehler beim Erstellen des Falls: {e}")
+		
+		worker = DbWorker(self.model, _check_existing)
+		worker.signals.result.connect(_on_check_existing)
+		worker.signals.error.connect(lambda e: print(f"Fall-Check fehlgeschlagen: {e}"))
+		self.threadpool.start(worker)
 
 	def _refresh_settings(self):
 		db_user = self.model.db_config.get("user", "—")
@@ -198,67 +215,81 @@ class PresenterBase:
 			QMessageBox.warning(self.view, "Kein Fall aktiv",
 							   "Bitte wählen Sie zuerst einen Fall aus.")
 			return
-		media_files = []
-		conn = self.model.get_connection()
-		if conn:
+
+		def _query(model):
+			conn = model.get_connection()
+			if not conn:
+				return []
 			try:
 				cur = conn.cursor(dictionary=True)
 				cur.execute(
 					"SELECT file_name, file_path, metadata, exif_metadata FROM media_files WHERE case_id = ?",
-					(self.model.current_case_id,)
+					(model.current_case_id,)
 				)
-				media_files = cur.fetchall() or []
+				return cur.fetchall() or []
 			finally:
 				conn.close()
-		for f in media_files:
-			for col in ("metadata", "exif_metadata"):
-				if isinstance(f.get(col), str):
-					try:
-						f[col] = json.loads(f[col])
-					except (json.JSONDecodeError, TypeError):
-						f[col] = {}
-		if hasattr(self.view, 'timeline_widget'):
-			offset = 0
-			if hasattr(self.view, 'cbo_offset'):
-				offset = self.view.cbo_offset.currentData() or 0
-			zoom = 100
-			if hasattr(self.view, 'slider_zoom'):
-				zoom = self.view.slider_zoom.value()
 
-			# Zuerst Timeline ohne Thumbnails anzeigen (schnell)
+		def _on_result(media_files):
 			for f in media_files:
-				f["_thumbnails"] = []
-				f["_duration_sec"] = 0
-			self.view.timeline_widget.refresh(media_files, self.model.current_case,
-											 offset_hours=offset, zoom_pct=zoom)
+				for col in ("metadata", "exif_metadata"):
+					if isinstance(f.get(col), str):
+						try:
+							f[col] = json.loads(f[col])
+						except (json.JSONDecodeError, TypeError):
+							f[col] = {}
+			if hasattr(self.view, 'timeline_widget'):
+				offset = 0
+				if hasattr(self.view, 'cbo_offset'):
+					offset = self.view.cbo_offset.currentData() or 0
+				zoom = 100
+				if hasattr(self.view, 'slider_zoom'):
+					zoom = self.view.slider_zoom.value()
 
-			self._last_timeline_offset = offset
-			self._last_timeline_zoom = zoom
+				# Zuerst Timeline ohne Thumbnails anzeigen (schnell)
+				for f in media_files:
+					f["_thumbnails"] = []
+					f["_duration_sec"] = 0
+				self.view.timeline_widget.refresh(media_files, self.model.current_case,
+												 offset_hours=offset, zoom_pct=zoom)
 
-			# Thumbnails asynchron im Worker-Thread extrahieren
-			thumb_dir = self.model.current_case_path / "thumbnails" if self.model.current_case_path else None
-			if thumb_dir and media_files:
-				case_id = self.model.current_case_id
-				if self._thumb_worker_running and self._thumb_worker_case_id == case_id:
-					print("[Timeline] ThumbnailWorker läuft bereits – überspringe Start.")
-				else:
-					from ..worker import ThumbnailWorker
-					self._thumbnail_generation += 1
-					gen = self._thumbnail_generation
-					self._thumb_worker_running = True
-					self._thumb_worker_case_id = case_id
-					worker = ThumbnailWorker(self.model, media_files, thumb_dir)
-					worker.signals.chunk.connect(
-						lambda result, g=gen: self._on_thumbnails_chunk(result, g))
-					worker.signals.result.connect(
-						lambda result, g=gen, o=offset, z=zoom: self._on_thumbnails_done(result, g, o, z))
-					worker.signals.error.connect(
-						lambda err, g=gen: self._on_thumbnail_error(err, g))
-					QThreadPool.globalInstance().start(worker)
+				self._last_timeline_offset = offset
+				self._last_timeline_zoom = zoom
+
+				# Thumbnails asynchron im Worker-Thread extrahieren
+				thumb_dir = self.model.current_case_path / "thumbnails" if self.model.current_case_path else None
+				if thumb_dir and media_files:
+					case_id = self.model.current_case_id
+					if self._thumb_worker_running and self._thumb_worker_case_id == case_id:
+						print("[Timeline] ThumbnailWorker läuft bereits – überspringe Start.")
+					else:
+						from ..worker import ThumbnailWorker
+						self._thumbnail_generation += 1
+						gen = self._thumbnail_generation
+						self._thumb_worker_running = True
+						self._thumb_worker_case_id = case_id
+						worker = ThumbnailWorker(self.model, media_files, thumb_dir)
+						worker.signals.chunk.connect(
+							lambda result, g=gen: self._on_thumbnails_chunk(result, g))
+						worker.signals.result.connect(
+							lambda result, g=gen, o=offset, z=zoom: self._on_thumbnails_done(result, g, o, z))
+						worker.signals.error.connect(
+							lambda err, g=gen: self._on_thumbnail_error(err, g))
+						QThreadPool.globalInstance().start(worker)
+
+		worker = DbWorker(self.model, _query)
+		worker.signals.result.connect(_on_result)
+		worker.signals.error.connect(lambda e: print(f"Timeline DB-Fehler: {e}"))
+		self.threadpool.start(worker)
 
 	def refresh_case_list(self):
-		cases = self.model.load_cases()
-		self.view.update_case_list(cases)
+		def _query(model):
+			return model.load_cases()
+		
+		worker = DbWorker(self.model, _query)
+		worker.signals.result.connect(self.view.update_case_list)
+		worker.signals.error.connect(lambda e: print(f"Case-Liste laden fehlgeschlagen: {e}"))
+		self.threadpool.start(worker)
 
 	def _on_thumbnails_chunk(self, media_files, gen):
 		if gen != self._thumbnail_generation:

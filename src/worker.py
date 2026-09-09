@@ -15,6 +15,112 @@ class WorkerSignals(QObject):
 	finished = pyqtSignal()
 	error = pyqtSignal(str)
 
+
+class DbWorkerSignals(QObject):
+	result = pyqtSignal(object)
+	error = pyqtSignal(str)
+
+
+class DbWorker(QRunnable):
+	"""Generic database worker for running DB queries off the GUI thread."""
+	
+	def __init__(self, model, query_func, *args, **kwargs):
+		super().__init__()
+		self.model = model
+		self.query_func = query_func
+		self.args = args
+		self.kwargs = kwargs
+		self.signals = DbWorkerSignals()
+	
+	def run(self):
+		try:
+			result = self.query_func(self.model, *self.args, **self.kwargs)
+			self.signals.result.emit(result)
+		except Exception as e:
+			import traceback
+			self.signals.error.emit(str(e))
+			traceback.print_exc()
+
+
+class ScanWorkerSignals(QObject):
+	result = pyqtSignal(list)
+	error = pyqtSignal(str)
+
+
+class ScanWorker(QRunnable):
+	"""Worker for scanning filesystem directories."""
+	
+	def __init__(self, folder, extensions=None):
+		super().__init__()
+		self.folder = folder
+		self.extensions = extensions or ('.mp4', '.mov', '.jpg', '.png', '.avi', '.mkv', '.webm', '.mts', '.jpeg', '.bmp', '.tiff', '.webp')
+		self.signals = ScanWorkerSignals()
+	
+	def run(self):
+		try:
+			if not os.path.exists(self.folder):
+				self.signals.error.emit(f"Ordner nicht gefunden: {self.folder}")
+				return
+			
+			files = []
+			for entry in os.scandir(self.folder):
+				if entry.is_file() and entry.name.lower().endswith(self.extensions):
+					files.append(entry.name)
+			
+			self.signals.result.emit(files)
+		except Exception as e:
+			import traceback
+			self.signals.error.emit(str(e))
+			traceback.print_exc()
+
+
+class PostProcessWorkerSignals(QObject):
+	result = pyqtSignal(dict)
+	error = pyqtSignal(str)
+
+
+class PostProcessWorker(QRunnable):
+	"""Worker for post-processing ffmpeg output (hash, MediaInfo, ExifTool)."""
+	
+	def __init__(self, model, filepath):
+		super().__init__()
+		self.model = model
+		self.filepath = filepath
+		self.signals = PostProcessWorkerSignals()
+	
+	def run(self):
+		try:
+			hash_val = self.model.calculate_hash(str(self.filepath))
+			mi_data = {}
+			exif_data = {}
+			try:
+				from pymediainfo import MediaInfo
+				mi = MediaInfo.parse(str(self.filepath))
+				mi_data = {t.track_type: t.to_data() for t in mi.tracks}
+			except Exception:
+				pass
+			try:
+				import exiftool
+				exif_path = str(BASE_DIR / "exiftool.exe")
+				if not os.path.exists(exif_path):
+					exif_path = str(BASE_DIR / "exiftool_files" / "exiftool.pl")
+				with exiftool.ExifToolHelper(executable=exif_path) as et:
+					meta = et.get_metadata(str(self.filepath))
+					if meta:
+						exif_data = meta[0]
+			except Exception:
+				pass
+			self.signals.result.emit({
+				"hash": hash_val,
+				"metadata": mi_data,
+				"exif": exif_data,
+				"filepath": str(self.filepath)
+			})
+		except Exception as e:
+			import traceback
+			self.signals.error.emit(str(e))
+			traceback.print_exc()
+
 class AnalysisWorker(QRunnable):
 	def __init__(self, model, filepath):
 		super().__init__()

@@ -1,6 +1,6 @@
 import json
 from PyQt6.QtWidgets import QMenu
-
+from ..worker import DbWorker
 from ..compare_window import ComparisonWindow
 
 
@@ -26,13 +26,18 @@ class ComparisonMixin:
 			print("Vergleichsliste geleert.")
 
 	def add_to_comparison(self, file_name):
-		try:
-			conn = self.model.get_connection()
-			cur = conn.cursor(dictionary=True)
-			cur.execute("SELECT metadata, exif_metadata FROM media_files WHERE file_name = ?", (file_name,))
-			row = cur.fetchone()
-			conn.close()
+		def _query(model):
+			conn = model.get_connection()
+			if not conn:
+				return None
+			try:
+				cur = conn.cursor(dictionary=True)
+				cur.execute("SELECT metadata, exif_metadata FROM media_files WHERE file_name = ?", (file_name,))
+				return cur.fetchone()
+			finally:
+				conn.close()
 
+		def _on_result(row):
 			if row:
 				data = json.loads(row['metadata'])
 				if row['exif_metadata']:
@@ -40,8 +45,11 @@ class ComparisonMixin:
 
 				self.comparison_data[file_name] = data
 				print(f"'{file_name}' vorgemerkt. ({len(self.comparison_data)} Dateien in Liste).")
-		except Exception as e:
-			print(f"Fehler beim Hinzufügen zum Vergleich: {e}")
+
+		worker = DbWorker(self.model, _query)
+		worker.signals.result.connect(_on_result)
+		worker.signals.error.connect(lambda e: print(f"Fehler beim Hinzufügen zum Vergleich: {e}"))
+		self.threadpool.start(worker)
 
 	def open_comparison_view(self):
 		if not self.comparison_data:
