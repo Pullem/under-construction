@@ -165,6 +165,8 @@
     <Folder Include="src\resources\icons\" />
     <Folder Include="src\view\" />
     <Folder Include="src\view\__pycache__\" />
+    <Folder Include="src\workers\" />
+    <Folder Include="src\workers\__pycache__\" />
     <Folder Include="src\__pycache__\" />
   </ItemGroup>
   <ItemGroup>
@@ -694,6 +696,16 @@
     <Content Include="src\view\__pycache__\main_window.cpython-314.pyc" />
     <Content Include="src\view\__pycache__\metadata_tabs.cpython-314.pyc" />
     <Content Include="src\view\__pycache__\__init__.cpython-314.pyc" />
+    <Content Include="src\workers\__pycache__\analysis_workers.cpython-314.pyc" />
+    <Content Include="src\workers\__pycache__\analysis_workers.cpython-38.pyc" />
+    <Content Include="src\workers\__pycache__\db_workers.cpython-314.pyc" />
+    <Content Include="src\workers\__pycache__\db_workers.cpython-38.pyc" />
+    <Content Include="src\workers\__pycache__\ffprobe_worker.cpython-314.pyc" />
+    <Content Include="src\workers\__pycache__\ffprobe_worker.cpython-38.pyc" />
+    <Content Include="src\workers\__pycache__\thumbnail_worker.cpython-314.pyc" />
+    <Content Include="src\workers\__pycache__\thumbnail_worker.cpython-38.pyc" />
+    <Content Include="src\workers\__pycache__\__init__.cpython-314.pyc" />
+    <Content Include="src\workers\__pycache__\__init__.cpython-38.pyc" />
     <Content Include="src\__pycache__\colored_tabbar.cpython-314.pyc" />
     <Content Include="src\__pycache__\main_window.cpython-314.pyc" />
     <Content Include="src\__pycache__\overlay.cpython-314.pyc" />
@@ -734,6 +746,14 @@
     <Compile Include="src\view\video_source.py" />
     <Compile Include="src\view\__init__.py" />
     <Compile Include="src\worker.py" />
+    <Compile Include="src\workers\copy_move_analysis.py" />
+    <Compile Include="src\workers\db_workers.py" />
+    <Compile Include="src\workers\ela_analysis.py" />
+    <Compile Include="src\workers\ffprobe_worker.py" />
+    <Compile Include="src\workers\jpeg_grid_analysis.py" />
+    <Compile Include="src\workers\resampling_analysis.py" />
+    <Compile Include="src\workers\thumbnail_worker.py" />
+    <Compile Include="src\workers\__init__.py" />
     <Compile Include="src\__init__.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />

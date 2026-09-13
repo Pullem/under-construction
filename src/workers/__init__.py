@@ -13,15 +13,24 @@ from .db_workers import (
 	AnalysisWorker,
 )
 
-from .analysis_workers import (
+from .ela_analysis import (
 	ElaWorkerSignals,
-	CopyMoveWorkerSignals,
-	ResamplingWorkerSignals,
-	JpegGridWorkerSignals,
-	SENSITIVITY_PRESETS,
 	ElaWorker,
+)
+
+from .copy_move_analysis import (
+	CopyMoveWorkerSignals,
 	CopyMoveWorker,
+	SENSITIVITY_PRESETS,
+)
+
+from .resampling_analysis import (
+	ResamplingWorkerSignals,
 	ResamplingWorker,
+)
+
+from .jpeg_grid_analysis import (
+	JpegGridWorkerSignals,
 	JpegGridWorker,
 )
 
@@ -45,15 +54,18 @@ __all__ = [
 	"PostProcessWorkerSignals",
 	"PostProcessWorker",
 	"AnalysisWorker",
-	# analysis_workers
+	# ela_analysis
 	"ElaWorkerSignals",
-	"CopyMoveWorkerSignals",
-	"ResamplingWorkerSignals",
-	"JpegGridWorkerSignals",
-	"SENSITIVITY_PRESETS",
 	"ElaWorker",
+	# copy_move_analysis
+	"CopyMoveWorkerSignals",
 	"CopyMoveWorker",
+	"SENSITIVITY_PRESETS",
+	# resampling_analysis
+	"ResamplingWorkerSignals",
 	"ResamplingWorker",
+	# jpeg_grid_analysis
+	"JpegGridWorkerSignals",
 	"JpegGridWorker",
 	# ffprobe_worker
 	"FfprobeWorkerSignals",
