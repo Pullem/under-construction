@@ -3,6 +3,8 @@ import traceback
 import logging
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject
 
+from src.utils.errors import AppError, ErrorCode, worker_error
+
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +38,9 @@ class ThumbnailWorker(QRunnable):
 			self.signals.result.emit(self.media_files)
 
 		except Exception as e:
+			err = worker_error("Thumbnail extraction failed", worker_type="ThumbnailWorker", exc=e)
+			self.signals.error.emit(err.to_json())
 			logger.exception("ThumbnailWorker error")
-			self.signals.error.emit(str(e))
 
 	def _process_file(self, f):
 		fname = f.get("file_name", "")

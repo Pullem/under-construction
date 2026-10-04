@@ -1,8 +1,14 @@
 import os
 import traceback
+import logging
 from pathlib import Path
 import numpy as np
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject
+
+from src.utils.errors import AppError, ErrorCode, analysis_error
+
+
+logger = logging.getLogger(__name__)
 
 
 class ElaWorkerSignals(QObject):
@@ -68,4 +74,5 @@ class ElaWorker(QRunnable):
 			self.signals.result.emit("ela", text, data)
 
 		except Exception as e:
-			self.signals.error.emit("ela", str(e))
+			err = analysis_error("ELA analysis failed", mode="ela", filepath=self.filepath, exc=e)
+			self.signals.error.emit("ela", err.to_json())

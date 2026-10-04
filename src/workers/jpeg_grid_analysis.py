@@ -1,7 +1,13 @@
 import traceback
+import logging
 from pathlib import Path
 import numpy as np
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject
+
+from src.utils.errors import AppError, ErrorCode, analysis_error
+
+
+logger = logging.getLogger(__name__)
 
 
 class JpegGridWorkerSignals(QObject):
@@ -205,5 +211,6 @@ class JpegGridWorker(QRunnable):
 			self.signals.result.emit("jpeggrid", text, data)
 
 		except Exception as e:
-			traceback.print_exc()
-			self.signals.error.emit("jpeggrid", str(e))
+			err = analysis_error("JPEG Grid analysis failed", mode="jpeggrid", filepath=self.filepath, exc=e)
+			self.signals.error.emit("jpeggrid", err.to_json())
+			logger.exception("JPEG Grid analysis failed")

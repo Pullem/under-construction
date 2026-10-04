@@ -1,7 +1,13 @@
 import traceback
+import logging
 from pathlib import Path
 import numpy as np
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject
+
+from src.utils.errors import AppError, ErrorCode, analysis_error
+
+
+logger = logging.getLogger(__name__)
 
 
 class ResamplingWorkerSignals(QObject):
@@ -161,5 +167,6 @@ class ResamplingWorker(QRunnable):
 			self.signals.result.emit("resample", text, data)
 
 		except Exception as e:
-			traceback.print_exc()
-			self.signals.error.emit("resample", str(e))
+			err = analysis_error("Resampling analysis failed", mode="resample", filepath=self.filepath, exc=e)
+			self.signals.error.emit("resample", err.to_json())
+			logger.exception("Resampling analysis failed")

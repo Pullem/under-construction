@@ -17,6 +17,7 @@ from pymediainfo import MediaInfo
 import exiftool
 
 from src.utils.logging_config import set_log_context, clear_log_context
+from src.utils.errors import AppError, ErrorCode, file_error, db_error, external_tool_error, worker_error
 
 
 logger = logging.getLogger(__name__)
@@ -187,7 +188,9 @@ class ImportWorker(QRunnable):
 					})
 
 				except Exception as e_file:
-					self.signals.error.emit(f"Fehler bei Datei {src}: {e_file}")
+					err = AppError.from_exception(e_file, code=ErrorCode.IMPORT_FAILED,
+												  context={"src": str(src_path), "dest": str(dest)})
+					self.signals.error.emit(err.to_json())
 
 				percent = int((idx / total) * 100)
 				self.signals.progress.emit(percent)
@@ -195,7 +198,9 @@ class ImportWorker(QRunnable):
 			self.signals.finished.emit()
 
 		except Exception as e:
-			self.signals.error.emit(str(e))
+			err = AppError.from_exception(e, code=ErrorCode.IMPORT_FAILED,
+										  context={"case_id": self.model.current_case_id})
+			self.signals.error.emit(err.to_json())
 			logger.exception("Import failed")
 		finally:
 			clear_log_context()

@@ -1,8 +1,14 @@
 import os
 import traceback
+import logging
 from pathlib import Path
 import numpy as np
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject
+
+from src.utils.errors import AppError, ErrorCode, analysis_error
+
+
+logger = logging.getLogger(__name__)
 
 
 SENSITIVITY_PRESETS = {
@@ -140,5 +146,6 @@ class CopyMoveWorker(QRunnable):
 			self.signals.result.emit("copymove", text, {"vis": vis, "shifts": shifts})
 
 		except Exception as e:
-			traceback.print_exc()
-			self.signals.error.emit("copymove", str(e))
+			err = analysis_error("Copy-Move analysis failed", mode="copymove", filepath=self.filepath, exc=e)
+			self.signals.error.emit("copymove", err.to_json())
+			logger.exception("Copy-Move analysis failed")

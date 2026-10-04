@@ -8,6 +8,7 @@ from pymediainfo import MediaInfo
 import exiftool
 
 from src.utils.logging_config import set_log_context, clear_log_context
+from src.utils.errors import AppError, ErrorCode, ErrorSeverity, db_error, file_error, analysis_error, external_tool_error, worker_error
 
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,9 @@ class DbWorker(QRunnable):
 			result = self.query_func(self.model, *self.args, **self.kwargs)
 			self.signals.result.emit(result)
 		except Exception as e:
-			self.signals.error.emit(str(e))
+			err = AppError.from_exception(e, code=ErrorCode.DB_QUERY,
+										  context={"query_func": self.query_func.__name__ if hasattr(self.query_func, '__name__') else "unknown"})
+			self.signals.error.emit(err.to_json())
 			logger.exception("Database query failed")
 
 
@@ -61,7 +64,8 @@ class ScanWorker(QRunnable):
 	def run(self):
 		try:
 			if not os.path.exists(self.folder):
-				self.signals.error.emit(f"Ordner nicht gefunden: {self.folder}")
+				err = file_error("Ordner nicht gefunden", filepath=self.folder)
+				self.signals.error.emit(err.to_json())
 				return
 
 			files = []
@@ -71,7 +75,9 @@ class ScanWorker(QRunnable):
 
 			self.signals.result.emit(files)
 		except Exception as e:
-			self.signals.error.emit(str(e))
+			err = AppError.from_exception(e, code=ErrorCode.FILE_NOT_FOUND,
+										  context={"folder": self.folder})
+			self.signals.error.emit(err.to_json())
 			logger.exception("Scan failed for folder: %s", self.folder)
 
 
@@ -117,7 +123,8 @@ class PostProcessWorker(QRunnable):
 				"filepath": str(self.filepath)
 			})
 		except Exception as e:
-			self.signals.error.emit(str(e))
+			err = worker_error("Post-process failed", worker_type="PostProcessWorker", exc=e)
+			self.signals.error.emit(err.to_json())
 			logger.exception("Post-process failed for %s", self.filepath)
 
 
@@ -223,7 +230,9 @@ class AnalysisWorker(QRunnable):
 			self.signals.finished.emit()
 
 		except Exception as e:
+			err = AppError.from_exception(e, code=ErrorCode.ANALYSIS_FAILED,
+										  context={"filepath": self.filepath, "filename": filename})
+			self.signals.error.emit(err.to_json())
 			logger.exception("Critical error during analysis of %s", filename)
-			self.signals.error.emit(str(e))
 		finally:
 			clear_log_context()

@@ -3,6 +3,8 @@ import traceback
 import logging
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject
 
+from src.utils.errors import AppError, ErrorCode, external_tool_error
+
 
 logger = logging.getLogger(__name__)
 
@@ -29,5 +31,6 @@ class FfprobeWorker(QRunnable):
 			)
 			self.signals.result.emit(self.mode, r.stdout, r.stderr)
 		except Exception as e:
-			self.signals.error.emit(self.mode, str(e))
+			err = external_tool_error("ffprobe", f"Mode {self.mode} failed", filepath=self.filepath, exc=e)
+			self.signals.error.emit(self.mode, err.to_json())
 			logger.exception("FfprobeWorker error for mode %s", self.mode)
