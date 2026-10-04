@@ -1,5 +1,6 @@
 import os
 import shutil
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -15,6 +16,10 @@ from PyQt6.QtWidgets import QComboBox
 from pymediainfo import MediaInfo
 import exiftool
 
+from src.utils.logging_config import set_log_context, clear_log_context
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------
@@ -74,8 +79,8 @@ class ImportWorker(QRunnable):
 		self.signals = ImportSignals()
 
 	def run(self):
+		set_log_context(case_id=self.model.current_case_id, operation="import")
 		try:
-			# 1) Lieferant anlegen oder finden
 			supplier = self.model.find_supplier_by_name(self.supplier_info["name"])
 			if supplier:
 				supplier_id = supplier["id"]
@@ -87,7 +92,6 @@ class ImportWorker(QRunnable):
 					self.supplier_info.get("notes")
 				)
 
-			# 2) Lieferung anlegen
 			delivered_at = (
 				self.delivery_info.get("delivered_at")
 				or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -100,7 +104,6 @@ class ImportWorker(QRunnable):
 				self.delivery_info.get("description")
 			)
 
-			# 3) Dateien importieren
 			total = len(self.files)
 
 			for idx, src in enumerate(self.files, start=1):
@@ -113,15 +116,15 @@ class ImportWorker(QRunnable):
 					if dest.exists():
 						dest = dest_dir / f"{src_path.stem}_{idx}{src_path.suffix}"
 
-					# Metadaten vom QUELL-File extrahieren (korrekte Erstelldaten)
-					print(f"[ImportWorker] Extrahiere Metadaten von Quelle: {src_path}")
+					set_log_context(file=src_path.name, operation="import_file")
+					logger.info("Extracting metadata from source: %s", src_path)
 					mi_dict = {
 						track.track_type or "Other": track.to_data()
 						for track in MediaInfo.parse(str(src_path)).tracks
 					}
 					if not mi_dict:
 						mi_dict = {"General": {"source_path": str(src_path)}}
-					# CLI-Fallback für Recorded_Location und file_creation_date_local
+
 					try:
 						import subprocess
 						for fmt, key in (
@@ -138,9 +141,8 @@ class ImportWorker(QRunnable):
 									mi_dict["General"] = {}
 								mi_dict["General"][key] = val
 					except Exception as e:
-						print(f"[ImportWorker] CLI-Fallback fehlgeschlagen: {e}")
+						logger.warning("CLI fallback failed: %s", e)
 
-					# EXIF vom Quell-File
 					exif_dict = {}
 					try:
 						BASE_DIR = Path(__file__).resolve().parent.parent
@@ -152,16 +154,13 @@ class ImportWorker(QRunnable):
 							if metadata:
 								exif_dict = metadata[0]
 					except Exception as e:
-						print(f"[ImportWorker] ExifTool Fehler: {e}")
+						logger.warning("ExifTool error: %s", e)
 
-					# Datei kopieren
-					print("COPY TO:", dest)
+					logger.info("Copying to destination: %s", dest)
 					shutil.copy2(src_path, dest)
 
-					# Hash vom Ziel berechnen
 					f_hash = self.model.calculate_hash(str(dest))
 
-					# Media speichern (Metadaten vom Original, Hash vom Copy)
 					self.model.save_to_db(
 						str(dest),
 						dest.name,
@@ -170,7 +169,6 @@ class ImportWorker(QRunnable):
 						exif_dict
 					)
 
-					# media_id holen
 					conn = self.model.get_connection()
 					if conn:
 						cur = conn.cursor(dictionary=True)
@@ -198,6 +196,9 @@ class ImportWorker(QRunnable):
 
 		except Exception as e:
 			self.signals.error.emit(str(e))
+			logger.exception("Import failed")
+		finally:
+			clear_log_context()
 
 
 # ---------------------------------------------------------
@@ -214,7 +215,6 @@ class ImportMediaDialog(QDialog):
 
 		self.setup_ui()
 
-		# --- Standard-Lieferdatum: jetzt ---
 		now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 		self.input_date.setText(now_str)
 
@@ -222,18 +222,14 @@ class ImportMediaDialog(QDialog):
 	def setup_ui(self):
 		layout = QVBoxLayout()
 
-		# Lieferantenfelder
 		supplier_layout = QHBoxLayout()
 
-		# --- Lieferanten-Auswahl (ComboBox) ---
 		self.input_supplier = QComboBox()
 		self.input_supplier.setEditable(True)
 		self.input_supplier.setPlaceholderText("Lieferant Name")
 
-		# Liste der Lieferanten laden
 		self._load_suppliers()
 
-		# Wenn ein Lieferant ausgewählt wird → Felder automatisch füllen
 		self.input_supplier.currentIndexChanged.connect(self._supplier_selected)
 		self.input_supplier.currentTextChanged.connect(self._supplier_selected)
 
@@ -249,13 +245,11 @@ class ImportMediaDialog(QDialog):
 		supplier_layout.addWidget(self.input_role)
 		layout.addLayout(supplier_layout)
 
-		# Lieferdatum + Beschreibung
 		meta_layout = QHBoxLayout()
 
 		self.input_date = QLineEdit()
 		self.input_date.setPlaceholderText("Lieferdatum (YYYY-MM-DD HH:MM)")
 
-		# --- PATCH: Jetzt-Button ---
 		self.btn_set_now = QPushButton("Jetzt")
 		self.btn_set_now.setToolTip("Aktuelles Datum und Uhrzeit eintragen")
 		self.btn_set_now.clicked.connect(self._set_now)
@@ -269,19 +263,16 @@ class ImportMediaDialog(QDialog):
 
 		layout.addLayout(meta_layout)
 
-		# Notizen
 		self.txt_notes = QTextEdit()
 		self.txt_notes.setPlaceholderText("Notizen (optional)")
 		layout.addWidget(self.txt_notes)
 
-		# Datei-Liste (mit Drag&Drop)
 		layout.addWidget(QLabel("Dateien (Drag & Drop oder 'Dateien hinzufügen')"))
 
 		self.list_widget = DropListWidget()
 		self.list_widget.fileDropped.connect(self.add_file)
 		layout.addWidget(self.list_widget)
 
-		# Buttons
 		btn_layout = QHBoxLayout()
 		btn_add = QPushButton("Dateien hinzufügen")
 		btn_add.clicked.connect(self.add_files_dialog)
@@ -297,15 +288,11 @@ class ImportMediaDialog(QDialog):
 		btn_layout.addWidget(btn_cancel)
 		layout.addLayout(btn_layout)
 
-		# Fortschritt
 		self.progress = QProgressBar()
 		layout.addWidget(self.progress)
 
 		self.setLayout(layout)
 
-	# ---------------------------------------------------------
-	# Datei-Handling
-	# ---------------------------------------------------------
 	def add_files_dialog(self):
 		files, _ = QFileDialog.getOpenFileNames(
 			self,
@@ -322,12 +309,11 @@ class ImportMediaDialog(QDialog):
 			self.list_widget.addItem(path)
 
 	def _validate_date(self, text):
-			"""Prüft, ob das Datum im Format YYYY-MM-DD HH:MM:SS ist."""
-			try:
-				datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
-				return True
-			except ValueError:
-				return False
+		try:
+			datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+			return True
+		except ValueError:
+			return False
 
 	def _set_now(self):
 		now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -335,7 +321,6 @@ class ImportMediaDialog(QDialog):
 
 
 	def _load_suppliers(self):
-		"""Lädt alle Lieferanten aus der DB in die ComboBox."""
 		conn = self.model.get_connection()
 		if not conn:
 			return
@@ -351,7 +336,6 @@ class ImportMediaDialog(QDialog):
 
 
 	def _supplier_selected(self, value):
-		# value kann Index (int) oder Text (str) sein
 		if isinstance(value, int):
 			name = self.input_supplier.itemText(value)
 		else:
@@ -362,45 +346,33 @@ class ImportMediaDialog(QDialog):
 
 		supplier = self.model.find_supplier_by_name(name)
 		if not supplier:
-			# Neuer Lieferant → Felder leeren
 			self.input_contact.setText("")
 			self.input_role.setText("")
 			self.txt_notes.setText("")
 			self.input_desc.setText("")
 			return
 
-		# Bestehender Lieferant → Felder füllen
 		self.input_contact.setText(supplier.get("contact", "") or "")
 		self.input_role.setText(supplier.get("role", "") or "")
 		self.txt_notes.setText(supplier.get("notes", "") or "")
 
-		# Letzte Lieferung holen
 		last_delivery = self.model.get_last_delivery_for_supplier(
 			supplier["id"],
 			self.model.current_case_id
 		)
 
 		if last_delivery:
-			# Beschreibung übernehmen
 			self.input_desc.setText(last_delivery.get("description", "") or "")
 
-			# Datum konvertieren
 			dt = last_delivery.get("delivered_at")
 			if isinstance(dt, datetime):
 				dt = dt.strftime("%Y-%m-%d %H:%M:%S")
 
 			self.input_date.setText(dt or "")
 		else:
-			# Keine frühere Lieferung → Beschreibung leer lassen
 			self.input_desc.setText("")
 
 
-
-
-
-	# ---------------------------------------------------------
-	# Import starten
-	# ---------------------------------------------------------
 	def start_import(self):
 		if not self.files:
 			QMessageBox.warning(self, "Keine Dateien", "Bitte mindestens eine Datei hinzufügen.")
@@ -411,7 +383,6 @@ class ImportMediaDialog(QDialog):
 			return
 
 
-		# --- PATCH: Datum validieren ---
 		date_text = self.input_date.text().strip()
 		if date_text and not self._validate_date(date_text):
 			QMessageBox.warning(
@@ -420,7 +391,6 @@ class ImportMediaDialog(QDialog):
 				"Bitte das Datum im Format:\n\nYYYY-MM-DD HH:MM:SS\n\nangeben."
 			)
 			return
-
 
 
 		supplier_info = {
@@ -446,9 +416,6 @@ class ImportMediaDialog(QDialog):
 		self.threadpool.start(worker)
 		self.setEnabled(False)
 
-	# ---------------------------------------------------------
-	# Worker-Signale
-	# ---------------------------------------------------------
 	def _on_file_done(self, info):
 		self.list_widget.addItem(f"Imported: {info['file_name']}")
 

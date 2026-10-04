@@ -1,5 +1,6 @@
 import os
 import mariadb
+import logging
 from configparser import ConfigParser
 from pathlib import Path
 
@@ -14,6 +15,9 @@ CASE_SUBFOLDERS = (
 	"recovered",
 	"logs",
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigDBMixin:
@@ -99,7 +103,7 @@ class ConfigDBMixin:
 			)
 			return conn
 		except mariadb.Error as e:
-			print(f"[DB] Verbindungsfehler: {e}")
+			logger.error("Database connection error: %s", e)
 			return None
 
 	def save_db_config(self):
@@ -123,4 +127,4 @@ class ConfigDBMixin:
 
 	def load_project(self, path):
 		self.project_path = Path(path).resolve()
-		print(f"[MODEL] Projekt geladen: {self.project_path}")
+		logger.info("Project loaded: %s", self.project_path)

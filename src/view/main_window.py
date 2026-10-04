@@ -1,6 +1,7 @@
 import os
 import json
 import subprocess
+import logging
 from datetime import datetime, timedelta
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 							 QListWidget, QListWidgetItem, QLabel, QLineEdit,
@@ -227,17 +228,17 @@ class MainWindowMixin(QMainWindow):
 		try:
 			self.set_hex_file(path)
 		except Exception as e:
-			print(f"set_hex_file fehlgeschlagen: {e}")
+			logger.warning("set_hex_file failed: %s", e)
 		try:
 			if hasattr(self, "video_trim_widget"):
 				self.video_trim_widget.load_file(path)
 		except Exception as e:
-			print(f"trim_widget.load_file fehlgeschlagen: {e}")
+			logger.warning("trim_widget.load_file failed: %s", e)
 		try:
 			if hasattr(self, "_enhance_window") and self._enhance_window.isVisible():
 				self._enhance_window.load_image(path)
 		except Exception as e:
-			print(f"_enhance_window.load_image fehlgeschlagen: {e}")
+			logger.warning("_enhance_window.load_image failed: %s", e)
 
 	def _update_ffmpeg_encoded_date(self, path):
 		label = None
@@ -258,7 +259,7 @@ class MainWindowMixin(QMainWindow):
 				label.setText(out)
 				return
 		except Exception as e:
-			print(f"_update_ffmpeg_encoded_date ffprobe: {e}")
+			logger.warning("_update_ffmpeg_encoded_date ffprobe: %s", e)
 
 		try:
 			conn = self._get_db_connection()
@@ -278,7 +279,7 @@ class MainWindowMixin(QMainWindow):
 						label.setText(ct)
 						return
 		except Exception as e:
-			print(f"_update_ffmpeg_encoded_date db: {e}")
+			logger.warning("_update_ffmpeg_encoded_date db: %s", e)
 
 		label.setText("–")
 

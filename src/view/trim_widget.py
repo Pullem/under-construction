@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 							 QPushButton, QCheckBox, QRadioButton, QButtonGroup,
@@ -164,7 +165,7 @@ class TrimWidget(QWidget):
 		try:
 			self._video.open(filepath)
 		except Exception as e:
-			print(f"VideoSource.open fehlgeschlagen: {e}")
+			logger.warning("VideoSource.open failed: %s", e)
 			return
 		self._fps = self._video.fps
 		self._total_frames = self._video.total_frames

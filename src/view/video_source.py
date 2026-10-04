@@ -1,4 +1,5 @@
 import av
+import logging
 from collections import OrderedDict
 from PyQt6.QtGui import QImage, QPixmap
 
@@ -88,7 +89,7 @@ class VideoSource:
 			img = QImage(data, w, h, QImage.Format.Format_RGB888)
 			return QPixmap.fromImage(img)
 		except Exception as e:
-			print(f"Frame-Konvertierung fehlgeschlagen: {e}")
+			logger.warning("Frame conversion failed: %s", e)
 			return None
 
 	def _add_cache(self, fn, pix):

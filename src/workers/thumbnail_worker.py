@@ -1,12 +1,16 @@
 import os
 import traceback
+import logging
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject
 
 
+logger = logging.getLogger(__name__)
+
+
 class ThumbnailWorkerSignals(QObject):
-	progress = pyqtSignal(int, int)  # current, total
-	chunk = pyqtSignal(object)       # media_files mit bisherigen Thumbnails
-	result = pyqtSignal(object)      # list of media_files with _thumbnails populated
+	progress = pyqtSignal(int, int)
+	chunk = pyqtSignal(object)
+	result = pyqtSignal(object)
 	error = pyqtSignal(str)
 
 
@@ -32,7 +36,7 @@ class ThumbnailWorker(QRunnable):
 			self.signals.result.emit(self.media_files)
 
 		except Exception as e:
-			print(f"[ThumbnailWorker] Fehler: {traceback.format_exc()}")
+			logger.exception("ThumbnailWorker error")
 			self.signals.error.emit(str(e))
 
 	def _process_file(self, f):

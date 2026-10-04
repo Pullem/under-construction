@@ -1,5 +1,9 @@
 import json
+import logging
 from ..worker import DbWorker
+
+
+logger = logging.getLogger(__name__)
 
 
 class FileOpsMixin:
@@ -22,7 +26,7 @@ class FileOpsMixin:
 		
 		worker = DbWorker(self.model, _query)
 		worker.signals.result.connect(self.view.update_file_list)
-		worker.signals.error.connect(lambda e: print(f"UI-Refresh fehlgeschlagen: {e}"))
+		worker.signals.error.connect(lambda e: logger.error("UI refresh failed: %s", e))
 		self.threadpool.start(worker)
 
 	def load_file_details(self, file_name):
@@ -31,7 +35,6 @@ class FileOpsMixin:
 
 		self._last_selected_file = file_name
 
-		# ffmpeg-Tab: Datei vorbefüllen
 		if hasattr(self.view, 'set_ffmpeg_file') and self._last_selected_file:
 			self._load_file_path_for_ffmpeg(file_name)
 
@@ -65,7 +68,7 @@ class FileOpsMixin:
 
 		worker = DbWorker(self.model, _query)
 		worker.signals.result.connect(_on_result)
-		worker.signals.error.connect(lambda e: print(f"Fehler beim Laden der Dateidetails: {e}"))
+		worker.signals.error.connect(lambda e: logger.error("Failed to load file details: %s", e))
 		self.threadpool.start(worker)
 
 	def _load_file_path_for_ffmpeg(self, file_name):

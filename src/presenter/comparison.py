@@ -1,7 +1,11 @@
 import json
+import logging
 from PyQt6.QtWidgets import QMenu
 from ..worker import DbWorker
 from ..compare_window import ComparisonWindow
+
+
+logger = logging.getLogger(__name__)
 
 
 class ComparisonMixin:
@@ -23,7 +27,7 @@ class ComparisonMixin:
 			self.open_comparison_view()
 		elif action == clear_action:
 			self.comparison_data.clear()
-			print("Vergleichsliste geleert.")
+			logger.info("Comparison list cleared")
 
 	def add_to_comparison(self, file_name):
 		def _query(model):
@@ -44,16 +48,16 @@ class ComparisonMixin:
 					data["EXIF"] = json.loads(row['exif_metadata'])
 
 				self.comparison_data[file_name] = data
-				print(f"'{file_name}' vorgemerkt. ({len(self.comparison_data)} Dateien in Liste).")
+				logger.info("Added '%s' to comparison (%d files in list)", file_name, len(self.comparison_data))
 
 		worker = DbWorker(self.model, _query)
 		worker.signals.result.connect(_on_result)
-		worker.signals.error.connect(lambda e: print(f"Fehler beim Hinzufügen zum Vergleich: {e}"))
+		worker.signals.error.connect(lambda e: logger.error("Failed to add to comparison: %s", e))
 		self.threadpool.start(worker)
 
 	def open_comparison_view(self):
 		if not self.comparison_data:
-			print("Keine Dateien ausgewählt!")
+			logger.warning("No files selected for comparison!")
 			return
 
 		self.comparison_window = ComparisonWindow(self.comparison_data)

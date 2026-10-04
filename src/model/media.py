@@ -2,6 +2,7 @@ import os
 import json
 import hashlib
 import subprocess
+import logging
 from pathlib import Path
 
 from .base import BASE_DIR
@@ -12,6 +13,9 @@ os.environ["OPENCV_VIDEOIO_DEBUG"] = "0"
 import cv2
 if hasattr(cv2, "setLogLevel"):
 	cv2.setLogLevel(0)
+
+
+logger = logging.getLogger(__name__)
 
 
 class MediaMixin:
@@ -31,7 +35,6 @@ class MediaMixin:
 		thumb_dir.mkdir(parents=True, exist_ok=True)
 		thumb_path = thumb_dir / (Path(filepath).stem + "_thumb.jpg")
 
-		# FFmpeg bevorzugen (zuverlässiger bei H.264 etc.)
 		ffmpeg = str(BASE_DIR / "ffmpeg.exe")
 		if os.path.exists(ffmpeg):
 			try:
@@ -46,7 +49,6 @@ class MediaMixin:
 			except Exception:
 				pass
 
-		# Fallback: OpenCV
 		import contextlib
 		with contextlib.redirect_stderr(open(os.devnull, 'w')):
 			try:
@@ -66,7 +68,7 @@ class MediaMixin:
 
 		conn = self.get_connection()
 		if not conn:
-			print("[DB] Keine Verbindung in save_to_db()")
+			logger.error("No database connection in save_to_db()")
 			return
 
 		try:
@@ -75,7 +77,6 @@ class MediaMixin:
 			md_json = json.dumps(mi_dict, ensure_ascii=False)
 			exif_json = json.dumps(exif_dict, ensure_ascii=False)
 
-			# Prüfen ob Hash bereits im selben Fall existiert
 			cur.execute(
 				"SELECT id FROM media_files WHERE sha256_hash = ? AND case_id = ?",
 				(f_hash, self.current_case_id)
@@ -94,9 +95,7 @@ class MediaMixin:
 				cur.execute(insert, (self.current_case_id, path, name, size, f_hash, md_json, exif_json))
 			except Exception as e:
 				if "Duplicate" in str(e) or "UNIQUE" in str(e):
-					# Migration: UNIQUE-Constraint durch normale Indizes ersetzen
 					cur.execute("ALTER TABLE media_files DROP INDEX sha256_hash")
-					# Index-Setup für bestehende DB nachziehen
 					cur.execute("ALTER TABLE media_files ADD INDEX idx_sha256_hash (sha256_hash)")
 					cur.execute("ALTER TABLE media_files ADD INDEX idx_case_hash (case_id, sha256_hash)")
 					conn.commit()
@@ -115,10 +114,9 @@ class MediaMixin:
 
 		ffmpeg = str(BASE_DIR / "ffmpeg.exe")
 		if not os.path.exists(ffmpeg):
-			print(f"[extract_thumbnails] ffmpeg nicht gefunden: {ffmpeg}")
+			logger.warning("ffmpeg not found: %s", ffmpeg)
 			return []
 
-		# Dauer via ffprobe ermitteln
 		duration = 0
 		try:
 			r = subprocess.run(
@@ -131,10 +129,9 @@ class MediaMixin:
 			if out:
 				duration = float(out)
 		except Exception as e:
-			print(f"[extract_thumbnails] ffprobe Fehler: {e}")
+			logger.warning("ffprobe error: %s", e)
 
 		if duration <= 0:
-			# Fallback: cv2 versuchen (stumm)
 			import contextlib
 			with contextlib.redirect_stderr(open(os.devnull, 'w')):
 				try:
@@ -150,11 +147,9 @@ class MediaMixin:
 				return []
 
 		num_thumbs = max(1, int(duration / interval_sec))
-		# Maximal 30 Frames pro Video extrahieren (gleichmäßig über die Dauer verteilt)
 		if num_thumbs > 30:
 			num_thumbs = 30
 			interval_sec = duration / num_thumbs
-		# Extraktions-Zeitpunkte
 		time_points = [i * interval_sec for i in range(num_thumbs)]
 
 		for t in time_points:
@@ -174,7 +169,7 @@ class MediaMixin:
 				if thumb_path.exists():
 					results.append({"time_sec": t, "path": str(thumb_path)})
 			except Exception as e:
-				print(f"[extract_thumbnails] Frame {t}s Fehler: {e}")
+				logger.warning("Frame %ss extraction failed: %s", t, e)
 
 		return results
 

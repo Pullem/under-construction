@@ -1,10 +1,16 @@
 import os
 import traceback
 import subprocess
+import logging
 from pathlib import Path
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject
 from pymediainfo import MediaInfo
 import exiftool
+
+from src.utils.logging_config import set_log_context, clear_log_context
+
+
+logger = logging.getLogger(__name__)
 
 
 class WorkerSignals(QObject):
@@ -35,7 +41,7 @@ class DbWorker(QRunnable):
 			self.signals.result.emit(result)
 		except Exception as e:
 			self.signals.error.emit(str(e))
-			traceback.print_exc()
+			logger.exception("Database query failed")
 
 
 class ScanWorkerSignals(QObject):
@@ -66,7 +72,7 @@ class ScanWorker(QRunnable):
 			self.signals.result.emit(files)
 		except Exception as e:
 			self.signals.error.emit(str(e))
-			traceback.print_exc()
+			logger.exception("Scan failed for folder: %s", self.folder)
 
 
 class PostProcessWorkerSignals(QObject):
@@ -83,60 +89,60 @@ class PostProcessWorker(QRunnable):
 		self.filepath = filepath
 		self.signals = PostProcessWorkerSignals()
 
-def run(self):
+	def run(self):
+		try:
+			hash_val = self.model.calculate_hash(str(self.filepath))
+			mi_data = {}
+			exif_data = {}
 			try:
-				hash_val = self.model.calculate_hash(str(self.filepath))
-				mi_data = {}
-				exif_data = {}
-				try:
-					mi = MediaInfo.parse(str(self.filepath))
-					mi_data = {t.track_type: t.to_data() for t in mi.tracks}
-				except Exception:
-					pass
-				BASE_DIR = Path(__file__).resolve().parent.parent.parent
-				exif_path = str(BASE_DIR / "exiftool.exe")
-				if not os.path.exists(exif_path):
-					exif_path = str(BASE_DIR / "exiftool_files" / "exiftool.pl")
-				try:
-					with exiftool.ExifToolHelper(executable=exif_path) as et:
-						meta = et.get_metadata(str(self.filepath))
-						if meta:
-							exif_data = meta[0]
-				except Exception:
-					pass
-				self.signals.result.emit({
-					"hash": hash_val,
-					"metadata": mi_data,
-					"exif": exif_data,
-					"filepath": str(self.filepath)
-				})
-			except Exception as e:
-				self.signals.error.emit(str(e))
-				traceback.print_exc()
+				mi = MediaInfo.parse(str(self.filepath))
+				mi_data = {t.track_type: t.to_data() for t in mi.tracks}
+			except Exception:
+				logger.debug("MediaInfo parse failed for %s", self.filepath)
+			BASE_DIR = Path(__file__).resolve().parent.parent.parent
+			exif_path = str(BASE_DIR / "exiftool.exe")
+			if not os.path.exists(exif_path):
+				exif_path = str(BASE_DIR / "exiftool_files" / "exiftool.pl")
+			try:
+				with exiftool.ExifToolHelper(executable=exif_path) as et:
+					meta = et.get_metadata(str(self.filepath))
+					if meta:
+						exif_data = meta[0]
+			except Exception:
+				logger.debug("ExifTool failed for %s", self.filepath)
+			self.signals.result.emit({
+				"hash": hash_val,
+				"metadata": mi_data,
+				"exif": exif_data,
+				"filepath": str(self.filepath)
+			})
+		except Exception as e:
+			self.signals.error.emit(str(e))
+			logger.exception("Post-process failed for %s", self.filepath)
 
 
 class AnalysisWorker(QRunnable):
-	def __init__(self, model, filepath):
+	def __init__(self, model, filepath, case_id=None):
 		super().__init__()
 		self.model = model
 		self.filepath = filepath
+		self.case_id = case_id
 		self.signals = WorkerSignals()
 
 	def run(self):
+		filename = os.path.basename(self.filepath)
+		set_log_context(case_id=self.case_id, file=filename, operation="analysis")
 		try:
-			filename = os.path.basename(self.filepath)
-			print(f"[Worker] Starte Analyse für: {filename}")
+			logger.info("Starting analysis for %s", filename)
 
-			# SCHRITT 1: Hashing
-			print(f"[Worker] Berechne Hash (CPU Last!)...")
+			logger.info("Calculating hash (CPU intensive)")
 			file_hash = self.model.calculate_hash(self.filepath)
-			print(f"[Worker] Hash fertig: {file_hash[:10]}...")
+			logger.info("Hash calculated: %s...", file_hash[:10])
 
-			# SCHRITT 2: MediaInfo
-			print(f"[Worker] MediaInfo Parsing...")
+			logger.info("Parsing MediaInfo")
 			mi = MediaInfo.parse(self.filepath)
 			mi_data = {track.track_type: track.to_data() for track in mi.tracks}
-			# GPS-Koordinaten aus CLI nachziehen (Recorded_Location fehlt oft in pymediainfo)
+
 			try:
 				result = subprocess.run(
 					["mediainfo", f"--Inform=General;%Recorded_Location%", self.filepath],
@@ -148,10 +154,10 @@ class AnalysisWorker(QRunnable):
 						mi_data["General"]["Recorded_Location"] = loc
 					else:
 						mi_data["General"] = {"Recorded_Location": loc}
-					print(f"[Worker] Recorded_Location: {loc}")
+					logger.info("Recorded_Location: %s", loc)
 			except Exception as e:
-				print(f"[Worker] Recorded_Location CLI fehlgeschlagen: {e}")
-			# Erstellungsdatum aus CLI nachziehen
+				logger.warning("Recorded_Location CLI failed: %s", e)
+
 			try:
 				result = subprocess.run(
 					["mediainfo", f"--Inform=General;%File_Creation_Date_Local%", self.filepath],
@@ -162,13 +168,13 @@ class AnalysisWorker(QRunnable):
 					if "General" not in mi_data:
 						mi_data["General"] = {}
 					mi_data["General"]["file_creation_date_local"] = fcd
-					print(f"[Worker] file_creation_date_local: {fcd}")
+					logger.info("file_creation_date_local: %s", fcd)
 			except Exception as e:
-				print(f"[Worker] file_creation_date_local CLI fehlgeschlagen: {e}")
-			print(f"[Worker] MediaInfo fertig.")
+				logger.warning("file_creation_date_local CLI failed: %s", e)
 
-			# SCHRITT 3: ExifTool
-			print(f"[Worker] ExifTool Deep Dive (Expliziter Pfad-Check)...")
+			logger.info("MediaInfo parsing completed")
+
+			logger.info("Starting ExifTool extraction")
 			exif_data = {}
 
 			BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -178,11 +184,10 @@ class AnalysisWorker(QRunnable):
 
 			try:
 				with exiftool.ExifToolHelper(executable=exif_path) as et:
-					print(f"[Worker] ExifTool Prozess gestartet...")
+					logger.debug("ExifTool process started")
 					metadata = et.get_metadata(self.filepath)
 					if metadata:
 						exif_data = metadata[0]
-					# GPS aus EXIF in die General-Metadaten übernehmen
 					gps_parts = []
 					for tag in ("GPSLatitude", "GPSLongitude", "Composite:GPSLatitude", "Composite:GPSLongitude"):
 						val = exif_data.get(tag)
@@ -192,24 +197,21 @@ class AnalysisWorker(QRunnable):
 						if "General" not in mi_data:
 							mi_data["General"] = {}
 						mi_data["General"]["EXIF GPS"] = " ".join(gps_parts)
-					print(f"[Worker] ExifTool fertig ({len(exif_data)} Tags).")
+					logger.info("ExifTool completed (%d tags)", len(exif_data))
 			except Exception as e:
-				print(f"[Worker] ⚠️ ExifTool Problem: {e}")
-				print(f"[Worker] Genutzter Pfad: {exif_path}")
+				logger.warning("ExifTool problem: %s", e)
+				logger.debug("ExifTool path used: %s", exif_path)
 
-			# SCHRITT 4: Thumbnail (GPU/OpenCV)
-			print(f"[Worker] Generiere Thumbnail...")
+			logger.info("Generating thumbnail")
 			thumb_path = self.model.get_thumbnail(self.filepath)
-			print(f"[Worker] Thumbnail fertig: {thumb_path}")
+			logger.info("Thumbnail generated: %s", thumb_path)
 
-			# SCHRITT 5: Datenbank
-			print(f"[Worker] Schreibe in MariaDB...")
+			logger.info("Saving to database")
 			self.model.save_to_db(
 				self.filepath, filename, file_hash, mi_data, exif_data
 			)
-			print(f"[Worker] Datenbank-Eintrag erfolgreich.")
+			logger.info("Database entry successful")
 
-			# Ergebnis senden
 			result_payload = {
 				"file_name": filename,
 				"file_hash": file_hash,
@@ -221,7 +223,7 @@ class AnalysisWorker(QRunnable):
 			self.signals.finished.emit()
 
 		except Exception as e:
-			# Voller Error-Stacktrace im Terminal ausgeben
-			error_trace = traceback.format_exc()
-			print(f"[Worker] KRITISCHER FEHLER:\n{error_trace}")
+			logger.exception("Critical error during analysis of %s", filename)
 			self.signals.error.emit(str(e))
+		finally:
+			clear_log_context()

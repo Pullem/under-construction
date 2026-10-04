@@ -1,4 +1,5 @@
 import os
+import logging
 from io import BytesIO
 
 import numpy as np
@@ -425,7 +426,7 @@ class ImageEnhanceWidget(QWidget):
             self._show_pixmap(self._original_view, self._preview_arr)
             self._update_preview()
         except Exception as e:
-            print(f"ImageEnhanceWidget.load_image: {e}")
+            logger.warning("ImageEnhanceWidget.load_image: %s", e)
 
     # ── processing pipeline ─────────────────────────────────
 

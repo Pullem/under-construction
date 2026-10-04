@@ -1,10 +1,12 @@
 import os
+import logging
 from PyQt6.QtWidgets import (
 	QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
 	QPushButton, QLineEdit, QLabel, QTextEdit, QMessageBox
 )
 from PyQt6.QtCore import Qt
 from src.model import ForensicModel
+from src.utils.logging_config import setup_logging, set_log_context
 
 
 class CaseLauncher(QDialog):
@@ -12,6 +14,9 @@ class CaseLauncher(QDialog):
 		super().__init__()
 		self.setWindowTitle("Forensic Lab – Fallverwaltung")
 		self.setFixedSize(550, 550)
+
+		setup_logging(console_level=logging.INFO)
+		self.logger = logging.getLogger(__name__)
 
 		self.model = ForensicModel()
 		self.selected_case_id = None
@@ -23,7 +28,6 @@ class CaseLauncher(QDialog):
 	def setup_ui(self):
 		layout = QVBoxLayout()
 
-		# --- Neuer Fall ---
 		layout.addWidget(QLabel("<b>Neuen Fall anlegen</b>"))
 		new_layout = QVBoxLayout()
 
@@ -43,7 +47,6 @@ class CaseLauncher(QDialog):
 
 		layout.addSpacing(20)
 
-		# --- Fälle anzeigen ---
 		layout.addWidget(QLabel("<b>Bestehende Fälle</b>"))
 		self.list_cases = QListWidget()
 		self.list_cases.itemDoubleClicked.connect(self.open_case)
@@ -66,6 +69,7 @@ class CaseLauncher(QDialog):
 		""")
 
 	def load_cases(self):
+		self.logger.info("Loading case list")
 		self.list_cases.clear()
 		cases = self.model.load_cases()
 
@@ -75,6 +79,8 @@ class CaseLauncher(QDialog):
 			item.setData(Qt.ItemDataRole.UserRole, c['id'])
 			self.list_cases.addItem(item)
 
+		self.logger.info("Loaded %d cases", len(cases))
+
 	def create_case(self):
 		name = self.txt_name.text().strip()
 		desc = self.txt_desc.toPlainText().strip()
@@ -83,8 +89,10 @@ class CaseLauncher(QDialog):
 			QMessageBox.warning(self, "Fehler", "Fallname darf nicht leer sein.")
 			return
 
+		self.logger.info("Creating case: %s", name)
 		case_id = self.model.create_case(name, desc)
 		self.load_cases()
+		self.logger.info("Case created with ID: %s", case_id)
 		QMessageBox.information(self, "Erfolg", "Fall wurde angelegt.")
 
 	def open_case(self):
@@ -93,4 +101,5 @@ class CaseLauncher(QDialog):
 			return
 
 		self.selected_case_id = item.data(Qt.ItemDataRole.UserRole)
+		self.logger.info("Opening case ID: %s", self.selected_case_id)
 		self.accept()

@@ -1,8 +1,14 @@
 import json
 import os
 import time
+import logging
 from PyQt6.QtCore import QThreadPool, Qt
 from ..worker import DbWorker
+
+from src.utils.logging_config import set_log_context, clear_log_context
+
+
+logger = logging.getLogger(__name__)
 
 
 def _guess_is_video(filename):
@@ -100,7 +106,9 @@ class PresenterBase:
 		self.comparison_data = {}
 		self.comparison_window = None
 
-		print(f"System bereit. {self.threadpool.maxThreadCount()} Threads verfügbar.")
+		if self.model.current_case_id:
+			set_log_context(case_id=self.model.current_case_id, operation="presenter_init")
+		logger.info("System ready. %d threads available.", self.threadpool.maxThreadCount())
 		self.refresh_ui_list()
 		self.refresh_case_list()
 
@@ -159,7 +167,7 @@ class PresenterBase:
 		
 		worker = DbWorker(self.model, _query)
 		worker.signals.result.connect(_on_result)
-		worker.signals.error.connect(lambda e: print(f"Fall laden fehlgeschlagen: {e}"))
+		worker.signals.error.connect(lambda e: logger.error("Failed to load case: %s", e))
 		self.threadpool.start(worker)
 
 	def handle_create_case(self, name, desc, incident_at, incident_until=None):
@@ -181,11 +189,11 @@ class PresenterBase:
 				self.refresh_case_list()
 				self.handle_open_timeline()
 			except Exception as e:
-				print(f"Fehler beim Erstellen des Falls: {e}")
+				logger.error("Failed to create case: %s", e)
 		
 		worker = DbWorker(self.model, _check_existing)
 		worker.signals.result.connect(_on_check_existing)
-		worker.signals.error.connect(lambda e: print(f"Fall-Check fehlgeschlagen: {e}"))
+		worker.signals.error.connect(lambda e: logger.error("Case check failed: %s", e))
 		self.threadpool.start(worker)
 
 	def _refresh_settings(self):
@@ -246,7 +254,6 @@ class PresenterBase:
 				if hasattr(self.view, 'slider_zoom'):
 					zoom = self.view.slider_zoom.value()
 
-				# Zuerst Timeline ohne Thumbnails anzeigen (schnell)
 				for f in media_files:
 					f["_thumbnails"] = []
 					f["_duration_sec"] = 0
@@ -256,12 +263,11 @@ class PresenterBase:
 				self._last_timeline_offset = offset
 				self._last_timeline_zoom = zoom
 
-				# Thumbnails asynchron im Worker-Thread extrahieren
 				thumb_dir = self.model.current_case_path / "thumbnails" if self.model.current_case_path else None
 				if thumb_dir and media_files:
 					case_id = self.model.current_case_id
 					if self._thumb_worker_running and self._thumb_worker_case_id == case_id:
-						print("[Timeline] ThumbnailWorker läuft bereits – überspringe Start.")
+						logger.info("ThumbnailWorker already running – skipping start.")
 					else:
 						from ..worker import ThumbnailWorker
 						self._thumbnail_generation += 1
@@ -279,7 +285,7 @@ class PresenterBase:
 
 		worker = DbWorker(self.model, _query)
 		worker.signals.result.connect(_on_result)
-		worker.signals.error.connect(lambda e: print(f"Timeline DB-Fehler: {e}"))
+		worker.signals.error.connect(lambda e: logger.error("Timeline DB error: %s", e))
 		self.threadpool.start(worker)
 
 	def refresh_case_list(self):
@@ -288,7 +294,7 @@ class PresenterBase:
 		
 		worker = DbWorker(self.model, _query)
 		worker.signals.result.connect(self.view.update_case_list)
-		worker.signals.error.connect(lambda e: print(f"Case-Liste laden fehlgeschlagen: {e}"))
+		worker.signals.error.connect(lambda e: logger.error("Failed to load case list: %s", e))
 		self.threadpool.start(worker)
 
 	def _on_thumbnails_chunk(self, media_files, gen):
@@ -319,4 +325,4 @@ class PresenterBase:
 		if self._thumb_worker_case_id != self.model.current_case_id:
 			return
 		self._thumb_worker_running = False
-		print(f"[Timeline] Thumbnail-Fehler: {err}")
+		logger.error("Timeline thumbnail error: %s", err)

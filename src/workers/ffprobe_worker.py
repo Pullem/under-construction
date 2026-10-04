@@ -1,11 +1,15 @@
 import subprocess
 import traceback
+import logging
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject
 
 
+logger = logging.getLogger(__name__)
+
+
 class FfprobeWorkerSignals(QObject):
-	result = pyqtSignal(str, str, str)  # mode, stdout, stderr
-	error = pyqtSignal(str, str)        # mode, error_msg
+	result = pyqtSignal(str, str, str)
+	error = pyqtSignal(str, str)
 
 
 class FfprobeWorker(QRunnable):
@@ -26,4 +30,4 @@ class FfprobeWorker(QRunnable):
 			self.signals.result.emit(self.mode, r.stdout, r.stderr)
 		except Exception as e:
 			self.signals.error.emit(self.mode, str(e))
-			traceback.print_exc()
+			logger.exception("FfprobeWorker error for mode %s", self.mode)
