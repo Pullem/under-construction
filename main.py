@@ -125,6 +125,8 @@ def main() -> None:
         view = ForensicView()
         presenter = ForensicPresenter(model, view)
 
+        app.aboutToQuit.connect(lambda: model.close_pool())
+
         view.show()
         sys.exit(app.exec())
     except Exception as e:

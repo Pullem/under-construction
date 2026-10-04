@@ -21,9 +21,14 @@ class CaseLauncher(QDialog):
 		self.model = ForensicModel()
 		self.selected_case_id = None
 
+		self.finished.connect(self._on_finished)
+
 		self.setup_ui()
 		self.load_cases()
 		self.apply_style()
+
+	def _on_finished(self, result):
+		self.model.close_pool()
 
 	def setup_ui(self):
 		layout = QVBoxLayout()
