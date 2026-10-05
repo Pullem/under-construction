@@ -1,0 +1,83 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  "default_agent": "forensic-build",
+
+  "watcher": {
+    "ignore": [
+      "*.mp4",
+      "*.mkv",
+      "*.avi",
+      "*.mov",
+      "*.exe",
+      "check_gpu.py",
+      "FFmpeg*NVIDIA*Diagnose.py",
+      "text.txt",
+      "*.pyproj",
+      "*.pyproj.user",
+      "*.slnx",
+      "__pycache__/**",
+      "logs/**",
+      "env/**",
+      "exiftool_files/**",
+      ".fontconfig/**",
+      "LOCAL_APPDATA_FONTCONFIG_CACHE"
+    ]
+  },
+
+  "agent": {
+    "forensic-deep": {
+      "description": "Tiefgehende Analyse, Architektur, komplexes Debugging und schwierige forensische Algorithmen.",
+      "mode": "primary",
+      "model": "opencode/nemotron-3-ultra-free",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "ask",
+          "git status *": "allow",
+          "git diff *": "allow",
+          "git log *": "allow",
+          "git branch *": "allow",
+          "git push *": "deny",
+          "git reset --hard *": "deny"
+        }
+      }
+    },
+
+    "forensic-build": {
+      "description": "Standard-Agent für die Entwicklung des Video-Forensik-Analyzers.",
+      "mode": "primary",
+      "model": "opencode/mimo-v2.6-flash-free",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "ask",
+          "git status *": "allow",
+          "git diff *": "allow",
+          "git log *": "allow",
+          "git branch *": "allow",
+          "git push *": "deny",
+          "git reset --hard *": "deny"
+        }
+      }
+    },
+
+    "forensic-fast": {
+      "description": "Schneller Agent für kleine Änderungen, einfache Fehlerbehebungen, Refactoring und Routineaufgaben.",
+      "mode": "primary",
+      "model": "opencode/nemotron-3.5-lightning-free",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "ask",
+          "git status *": "allow",
+          "git diff *": "allow",
+          "git log *": "allow",
+          "git branch *": "allow",
+          "git push *": "deny",
+          "git reset --hard *": "deny"
+        }
+      }
+    }
+  }
+}

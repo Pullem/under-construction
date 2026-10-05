@@ -329,3 +329,16 @@ Bei Zielkonflikten gilt:
 Performance darf nicht auf Kosten der Datenintegrität gehen.
 
 Forensische Nachvollziehbarkeit ist wichtiger als maximale Geschwindigkeit.
+
+---
+
+## 17. Dateien im Root-Ordner
+
+Im Projekt-Root liegen Diagnose-, Test- und Beispieldateien, die kein Bestandteil des Anwendungs-Codes sind:
+
+* `check_gpu.py`, `FFmpeg‑NVIDIA‑Diagnose.py` – GPU-/FFmpeg-Diagnoseskripte
+* `789.mp4`, `23-45_5min.mp4`, `ffv1_test.mkv` – Beispiel-/Testvideos
+* `ffmpeg.exe`, `ffprobe.exe`, `MediaInfo.exe`, `exiftool.exe` – gebündelte Binärdateien
+* `text.txt`, `*.pyproj`, `*.slnx`, `*.pyproj.user` – Sonstiges/IDE
+
+Diese Dateien bei Code-Analysen, Refactoring und Architekturaufgaben nicht berücksichtigen, sofern nicht ausdrücklich danach gefragt wird. Relevanter Projektcode liegt in `src/`, `main.py`, `setup_db.py` und `config/`.
