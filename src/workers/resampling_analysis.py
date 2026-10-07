@@ -5,6 +5,7 @@ import numpy as np
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject
 
 from src.utils.errors import AppError, ErrorCode, analysis_error
+from src.utils.gpu_config import get_gpu_config, check_cuda_available
 
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,58 @@ class ResamplingWorker(QRunnable):
 		self.filepath = filepath
 		self.exports_dir = Path(exports_dir)
 		self.signals = ResamplingWorkerSignals()
+		self._gpu_config = None
+		self._cuda_available = False
+		self._device = None
+		self._init_gpu()
+
+	def _init_gpu(self):
+		try:
+			self._gpu_config = get_gpu_config()
+			self._cuda_available, _ = check_cuda_available()
+			if self._cuda_available and self._gpu_config.enabled:
+				import torch
+				self._device = torch.device(f'cuda:{self._gpu_config.device_index}')
+		except Exception:
+			self._cuda_available = False
+			self._device = None
+
+	def _gpu_fft2_chunked(self, arr: np.ndarray) -> np.ndarray:
+		"""Compute 2D FFT using PyTorch on GPU with chunking for VRAM management."""
+		if not self._cuda_available or self._device is None:
+			return np.fft.fft2(arr)
+		
+		import torch
+		h, w = arr.shape
+		# Estimate tile height to stay within chunk_size_mb (complex128 = 16 bytes per element)
+		bytes_per_elem = 16
+		max_elements = (self._gpu_config.chunk_size_mb * 1024 * 1024) // bytes_per_elem
+		tile_h = max(1, min(h, max_elements // w))
+		
+		if tile_h >= h:
+			# Small enough for single GPU call
+			tensor = torch.from_numpy(arr).to(self._device)
+			fft_result = torch.fft.fft2(tensor)
+			return fft_result.cpu().numpy()
+		
+		# Process in horizontal strips
+		result = np.empty((h, w), dtype=np.complex128)
+		for y0 in range(0, h, tile_h):
+			y1 = min(y0 + tile_h, h)
+			tile = torch.from_numpy(arr[y0:y1]).to(self._device)
+			fft_tile = torch.fft.fft2(tile)
+			result[y0:y1] = fft_tile.cpu().numpy()
+		return result
+
+	def _gpu_rfft_chunked(self, profile: np.ndarray) -> np.ndarray:
+		"""Compute 1D RFFT using PyTorch on GPU."""
+		if not self._cuda_available or self._device is None:
+			return np.fft.rfft(profile)
+		
+		import torch
+		tensor = torch.from_numpy(profile).to(self._device)
+		rfft_result = torch.fft.rfft(tensor)
+		return rfft_result.cpu().numpy()
 
 	def run(self):
 		try:
@@ -78,7 +131,8 @@ class ResamplingWorker(QRunnable):
 				np.roll(gray, -1, 1) + np.roll(gray, 1, 1))
 			res = res - float(res.mean())
 
-			F = np.fft.fftshift(np.fft.fft2(res))
+			# GPU-accelerated FFT
+			F = np.fft.fftshift(self._gpu_fft2_chunked(res))
 			P = np.abs(F).astype(np.float64) ** 2
 			cy, cx = h // 2, w // 2
 			cut_r = max(4, min(h, w) // 40)
@@ -100,7 +154,8 @@ class ResamplingWorker(QRunnable):
 			spectral_peakiness = kurtosis / 20.0
 
 			def _band_periodicity(profile):
-				p = np.abs(np.fft.rfft(profile - float(profile.mean())))[1:]
+				# GPU-accelerated RFFT
+				p = np.abs(self._gpu_rfft_chunked(profile - float(profile.mean())))[1:]
 				n = len(p)
 				band = p[int(n * 0.05):int(n * 0.95)]
 				if band.size == 0:

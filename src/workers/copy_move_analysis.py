@@ -6,6 +6,7 @@ import numpy as np
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject
 
 from src.utils.errors import AppError, ErrorCode, analysis_error
+from src.utils.gpu_config import get_gpu_config, check_cuda_available
 
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,27 @@ class CopyMoveWorker(QRunnable):
 		self.sensitivity = sensitivity
 		self.params = SENSITIVITY_PRESETS.get(sensitivity, SENSITIVITY_PRESETS["standard"])
 		self.signals = CopyMoveWorkerSignals()
+		self._gpu_config = None
+		self._cuda_available = False
+		self._init_gpu()
+
+	def _init_gpu(self):
+		try:
+			self._gpu_config = get_gpu_config()
+			self._cuda_available, _ = check_cuda_available()
+		except Exception:
+			self._cuda_available = False
+			self._gpu_config = None
+
+	def _get_sift(self, contrast_threshold):
+		"""Get SIFT detector, using CUDA if available."""
+		if self._cuda_available and self._gpu_config and self._gpu_config.enabled:
+			try:
+				if hasattr(cv2, 'cuda') and cv2.cuda.getCudaEnabledDeviceCount() > 0:
+					return cv2.cuda_SIFT_create(contrastThreshold=contrast_threshold)
+			except Exception:
+				pass
+		return cv2.SIFT_create(contrastThreshold=contrast_threshold)
 
 	def run(self):
 		try:
@@ -61,8 +83,19 @@ class CopyMoveWorker(QRunnable):
 			src = ImageOps.exif_transpose(Image.open(self.filepath)).convert("RGB")
 			gray = cv2.cvtColor(np.array(src), cv2.COLOR_RGB2GRAY)
 
-			sift = cv2.SIFT_create(contrastThreshold=self.params["contrast_threshold"])
-			kp, desc = sift.detectAndCompute(gray, None)
+			sift = self._get_sift(self.params["contrast_threshold"])
+			
+			# Use CUDA GpuMat if CUDA SIFT is available
+			use_cuda = (self._cuda_available and self._gpu_config and self._gpu_config.enabled 
+					   and hasattr(sift, 'detectAndComputeAsync'))
+			if use_cuda:
+				gpu_gray = cv2.cuda_GpuMat()
+				gpu_gray.upload(gray)
+				kp_gpu, desc_gpu = sift.detectAndComputeAsync(gpu_gray, None)
+				kp = sift.convert(kp_gpu)
+				desc = desc_gpu.download() if desc_gpu is not None else None
+			else:
+				kp, desc = sift.detectAndCompute(gray, None)
 
 			if desc is None or len(kp) < 8:
 				text = (
@@ -114,7 +147,7 @@ class CopyMoveWorker(QRunnable):
 					f"Matched (Ratio-Test): {len(good)}\n"
 					f"RANSAC-Inlier: 0\n"
 					f"Ergebnis: Keine konsistente Transformationsgruppe (RANSAC) gefunden\n"
-					f"→ vermutlich keine Copy-Move-Manipulation oder zu glatte/komprimierte Region.",
+					f"\u2192 vermutlich keine Copy-Move-Manipulation oder zu glatte/komprimierte Region.",
 					{"vis": None},
 				)
 				return
@@ -132,7 +165,7 @@ class CopyMoveWorker(QRunnable):
 				[[tk.pt[0] - qk.pt[0], tk.pt[1] - qk.pt[1]] for qk, tk in pairs],
 				dtype=np.float32)
 
-			verdict = "⚠️  Copy-Move verdächtig" if len(pairs) > self.params["verdict_threshold"] else "Keine offensichtliche Copy-Move erkannt"
+			verdict = "\u26a0\ufe0f  Copy-Move verd\u00e4chtig" if len(pairs) > self.params["verdict_threshold"] else "Keine offensichtliche Copy-Move erkannt"
 			text = (
 				f"Copy-Move-Analyse: {Path(self.filepath).name}\n"
 				f"{'-' * 50}\n"

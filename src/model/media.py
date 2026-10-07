@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from .base import BASE_DIR
+from ..utils.gpu_config import get_gpu_config, check_cuda_available
 
 # OpenCV stumm schalten (keine "Failed to initialize" Ausgaben)
 os.environ["OPENCV_LOG_LEVEL"] = "FATAL"
@@ -19,6 +20,30 @@ logger = logging.getLogger(__name__)
 
 
 class MediaMixin:
+	def __init__(self, **kwargs):
+		super().__init__(**kwargs)
+		self._gpu_config = None
+		self._cuda_available = False
+		self._init_gpu()
+
+	def _init_gpu(self):
+		try:
+			self._gpu_config = get_gpu_config()
+			self._cuda_available, _ = check_cuda_available()
+		except Exception:
+			self._gpu_config = None
+			self._cuda_available = False
+
+	def _get_hwaccel_args(self, for_decode: bool = True) -> list[str]:
+		if not self._cuda_available or not self._gpu_config or not self._gpu_config.enabled:
+			return []
+		if for_decode:
+			hwaccel = self._gpu_config.decode_hwaccel
+			if hwaccel in ("nvdec", "cuda"):
+				return ["-hwaccel", hwaccel, "-hwaccel_device", str(self._gpu_config.device_index)]
+		return []
+
+
 	def calculate_hash(self, filepath):
 		sha256 = hashlib.sha256()
 		with open(filepath, "rb") as f:
@@ -38,10 +63,14 @@ class MediaMixin:
 		ffmpeg = str(BASE_DIR / "ffmpeg.exe")
 		if os.path.exists(ffmpeg):
 			try:
+				hwaccel_args = self._get_hwaccel_args(for_decode=True)
+				scale_filter = []
+				if self._cuda_available and self._gpu_config and self._gpu_config.thumbnail_hwaccel:
+					scale_filter = ["-vf", "scale_cuda=120:-2"]
 				subprocess.run(
-					[ffmpeg, "-ss", "0", "-i", str(filepath),
-					 "-vframes", "1", "-q:v", "2",
-					 "-y", str(thumb_path)],
+					[ffmpeg] + hwaccel_args + ["-ss", "0", "-i", str(filepath),
+					 "-vframes", "1", "-q:v", "2"] + scale_filter +
+					["-y", str(thumb_path)],
 					capture_output=True, text=True, timeout=30
 				)
 				if thumb_path.exists() and thumb_path.stat().st_size > 0:
@@ -152,6 +181,10 @@ class MediaMixin:
 			interval_sec = duration / num_thumbs
 		time_points = [i * interval_sec for i in range(num_thumbs)]
 
+		hwaccel_args = self._get_hwaccel_args(for_decode=True)
+		use_cuda_scale = (self._cuda_available and self._gpu_config 
+						  and self._gpu_config.thumbnail_hwaccel)
+
 		for t in time_points:
 			thumb_name = f"{f_hash}_t{int(t)}.jpg"
 			thumb_path = thumb_dir / thumb_name
@@ -159,11 +192,11 @@ class MediaMixin:
 				results.append({"time_sec": t, "path": str(thumb_path)})
 				continue
 			try:
+				scale_filter = ["-vf", "scale_cuda=120:-2"] if use_cuda_scale else ["-vf", "scale=120:-2"]
 				subprocess.run(
-					[ffmpeg, "-ss", str(t), "-i", str(filepath),
-					 "-vframes", "1", "-q:v", "2",
-					 "-vf", "scale=120:-2",
-					 "-y", str(thumb_path)],
+					[ffmpeg] + hwaccel_args + ["-ss", str(t), "-i", str(filepath),
+					 "-vframes", "1", "-q:v", "2"] + scale_filter +
+					["-y", str(thumb_path)],
 					capture_output=True, text=True, timeout=30
 				)
 				if thumb_path.exists():

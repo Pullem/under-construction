@@ -20,6 +20,7 @@ from .tab_builder import (build_case_tab, build_import_tab, build_metadata_tab,
 	build_videos_tab, build_bilder_tab, build_settings_tab,
 	build_hex_tab, build_analysis_tab, build_placeholder_tab,
 	active_media_prefix)
+from ..utils.gpu_config import get_gpu_config, check_cuda_available
 
 # ---------------------------------------------------------
 # CUSTOM TAB BAR (flaches Design, horizontale Schrift)
@@ -119,6 +120,7 @@ class MainWindowMixin(QMainWindow):
 		self.nav_bar.currentChanged.connect(self.content_stack.setCurrentIndex)
 
 		self._refresh_timezone()
+		self._update_gpu_status()
 
 		main_layout.addWidget(self.nav_bar)
 		main_layout.addWidget(self.content_stack, 1)
@@ -443,6 +445,44 @@ class MainWindowMixin(QMainWindow):
 				idx = combo.findData(offset)
 				if idx >= 0:
 					combo.setCurrentIndex(idx)
+
+	def _update_gpu_status(self):
+		"""Update GPU status label in settings tab."""
+		if not hasattr(self, 'lbl_gpu_status'):
+			return
+		try:
+			cuda_available, gpu_name = check_cuda_available()
+			config = get_gpu_config()
+			if cuda_available and config.enabled:
+				vram_gb = config.max_vram_mb / 1024
+				self.lbl_gpu_status.setText(
+					f"✅ GPU aktiv: {gpu_name}\n"
+					f"   Gerät: {config.device_index} | VRAM-Limit: {vram_gb:.1f} GB\n"
+					f"   Decode: {config.decode_hwaccel.upper()} | Thumbnail HW: {'Ja' if config.thumbnail_hwaccel else 'Nein'}"
+				)
+				self.lbl_gpu_status.setStyleSheet(
+					"background-color: #1a3a1a; color: #8f8; padding: 6px; border: 1px solid #4a7a4a;"
+				)
+			elif config.enabled and not cuda_available:
+				self.lbl_gpu_status.setText(
+					"⚠️ GPU konfiguriert, aber CUDA nicht verfügbar\n"
+					"Fallback auf CPU-Berechnung"
+				)
+				self.lbl_gpu_status.setStyleSheet(
+					"background-color: #3a3a1a; color: #ff8; padding: 6px; border: 1px solid #7a7a4a;"
+				)
+			else:
+				self.lbl_gpu_status.setText(
+					"❌ GPU deaktiviert (config/gpu.ini: enabled=false)"
+				)
+				self.lbl_gpu_status.setStyleSheet(
+					"background-color: #3a1a1a; color: #f88; padding: 6px; border: 1px solid #7a4a4a;"
+				)
+		except Exception as e:
+			self.lbl_gpu_status.setText(f"❌ GPU-Status Fehler: {e}")
+			self.lbl_gpu_status.setStyleSheet(
+				"background-color: #3a1a1a; color: #f88; padding: 6px; border: 1px solid #7a4a4a;"
+			)
 
 	def _on_bis_toggled(self, checked):
 		self.d_incident_until.setVisible(checked)

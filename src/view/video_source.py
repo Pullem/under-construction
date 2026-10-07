@@ -3,6 +3,12 @@ import logging
 from collections import OrderedDict
 from PyQt6.QtGui import QImage, QPixmap
 
+try:
+	from src.utils.gpu_config import get_gpu_config, check_cuda_available
+	_GPU_CONFIG_AVAILABLE = True
+except ImportError:
+	_GPU_CONFIG_AVAILABLE = False
+
 
 class VideoSource:
 	def __init__(self):
@@ -17,11 +23,46 @@ class VideoSource:
 		self._decoder = None
 		self._path = ""
 		self._rotation = 0
+		self._hwaccel_enabled = False
+		self._gpu_config = None
+
+	def _init_gpu(self):
+		if not _GPU_CONFIG_AVAILABLE:
+			return
+		try:
+			self._gpu_config = get_gpu_config()
+			cuda_available, _ = check_cuda_available()
+			self._hwaccel_enabled = (cuda_available 
+									 and self._gpu_config.enabled 
+									 and self._gpu_config.decode_hwaccel in ("nvdec", "cuda"))
+		except Exception:
+			self._hwaccel_enabled = False
+			self._gpu_config = None
 
 	def open(self, path):
 		self.close()
 		self._path = path
-		self._container = av.open(path)
+		
+		if self._gpu_config is None:
+			self._init_gpu()
+		
+		options = {}
+		if self._hwaccel_enabled:
+			hwaccel = self._gpu_config.decode_hwaccel
+			options['hwaccel'] = hwaccel
+			options['hwaccel_device'] = str(self._gpu_config.device_index)
+			logging.getLogger(__name__).info("Opening video with hwaccel: %s on device %d", hwaccel, self._gpu_config.device_index)
+		
+		try:
+			self._container = av.open(path, options=options)
+		except Exception as e:
+			if self._hwaccel_enabled:
+				logging.getLogger(__name__).warning("HW decode failed, falling back to software: %s", e)
+				self._hwaccel_enabled = False
+				self._container = av.open(path)
+			else:
+				raise
+		
 		streams = [s for s in self._container.streams if s.type == "video"]
 		if not streams:
 			raise ValueError("Kein Video-Stream gefunden")

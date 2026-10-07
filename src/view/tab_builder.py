@@ -746,6 +746,13 @@ def build_settings_tab(view):
 	layout.addWidget(QLabel("<b>Einstellungen</b>"))
 	layout.addSpacing(20)
 
+	# GPU Status Section
+	layout.addWidget(QLabel("<b>GPU-Beschleunigung (RTX 2080 Super)</b>"))
+	view.lbl_gpu_status = QLabel("Prüfe...")
+	view.lbl_gpu_status.setStyleSheet("background-color: #2d2d2d; color: #ccc; padding: 6px; border: 1px solid #444;")
+	layout.addWidget(view.lbl_gpu_status)
+	layout.addSpacing(15)
+
 	layout.addWidget(QLabel("Datenbank-Benutzer:"))
 	view.lbl_db_user = QLabel("—")
 	view.lbl_db_user.setStyleSheet("background-color: #2d2d2d; color: #ccc; padding: 6px; border: 1px solid #444;")

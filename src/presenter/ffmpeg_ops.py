@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, QProcess, QThreadPool
 
 from ..model.base import BASE_DIR
 from ..worker import FfprobeWorker, ElaWorker, CopyMoveWorker, ResamplingWorker, JpegGridWorker, PostProcessWorker
+from ..utils.gpu_config import get_gpu_config, check_cuda_available
 
 
 class FfmpegOpsMixin:
@@ -13,6 +14,36 @@ class FfmpegOpsMixin:
 		super().__init__(**kwargs)
 		self._ffmpeg_proc = None
 		self._copymove_running = False
+		self._gpu_config = None
+		self._cuda_available = False
+		self._init_gpu()
+
+	def _init_gpu(self):
+		try:
+			self._gpu_config = get_gpu_config()
+			self._cuda_available, _ = check_cuda_available()
+		except Exception as e:
+			self._ffmpeg_log(f"GPU config init failed: {e}")
+			self._gpu_config = None
+			self._cuda_available = False
+
+	def _get_hwaccel_args(self, for_decode: bool = True) -> list[str]:
+		if not self._cuda_available or not self._gpu_config or not self._gpu_config.enabled:
+			return []
+		if for_decode:
+			hwaccel = self._gpu_config.decode_hwaccel
+			if hwaccel in ("nvdec", "cuda"):
+				return ["-hwaccel", hwaccel, "-hwaccel_device", str(self._gpu_config.device_index)]
+		return []
+
+	def _get_encode_args(self, codec_fmt: str) -> tuple[str, list[str]]:
+		codec_map = {
+			"ffv1": ("mkv", ["-c:v", "ffv1", "-pix_fmt", "yuv420p"]),
+			"h264_crf18": ("mp4", ["-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p"]),
+			"h264_crf10": ("mp4", ["-c:v", "libx264", "-crf", "10", "-pix_fmt", "yuv420p"]),
+		}
+		ext, codec_args = codec_map.get(codec_fmt, ("mkv", ["-c:v", "ffv1"]))
+		return ext, codec_args
 
 	def handle_ffmpeg_run(self, input_path, args_str, codec_fmt, prefix="video"):
 		if self._ffmpeg_proc:
@@ -70,19 +101,21 @@ class FfmpegOpsMixin:
 		bitstream_mode = (filter_str == "__BITSTREAM__")
 		framehash_mode = (filter_str == "-f framehash -")
 
+		hwaccel_args = self._get_hwaccel_args(for_decode=True)
+
 		if bitstream_mode:
 			out_path_capture = None
-			cmd = [str(BASE_DIR / "ffmpeg.exe"), "-i", str(src), "-f", "null", "-"]
+			cmd = [str(BASE_DIR / "ffmpeg.exe")] + hwaccel_args + ["-i", str(src), "-f", "null", "-"]
 		elif framehash_mode:
 			out_path_capture = None
-			cmd = [str(BASE_DIR / "ffmpeg.exe"), "-y"]
+			cmd = [str(BASE_DIR / "ffmpeg.exe"), "-y"] + hwaccel_args
 			if start_ts != "00:00:00":
 				cmd += ["-ss", start_ts]
 			cmd += ["-i", str(src)]
 			cmd += ["-f", "framehash", "-"]
 		else:
 			out_path_capture = out_path
-			cmd = [str(BASE_DIR / "ffmpeg.exe"), "-y"]
+			cmd = [str(BASE_DIR / "ffmpeg.exe"), "-y"] + hwaccel_args
 			if start_ts != "00:00:00":
 				cmd += ["-ss", start_ts]
 			cmd += ["-i", str(src)]
@@ -219,12 +252,13 @@ class FfmpegOpsMixin:
 			out_path = exports_dir / out_filename
 			out_idx += 1
 
-		cmd = [str(BASE_DIR / "ffmpeg.exe"), "-y",
-			   "-ss", start_ts, "-i", str(src),
-			   "-to", end_ts,
-			   *codec_args,
-			   "-avoid_negative_ts", "make_zero",
-			   str(out_path)]
+		hwaccel_args = self._get_hwaccel_args(for_decode=True)
+		cmd = [str(BASE_DIR / "ffmpeg.exe"), "-y"] + hwaccel_args + [
+			"-ss", start_ts, "-i", str(src),
+			"-to", end_ts,
+			*codec_args,
+			"-avoid_negative_ts", "make_zero",
+			str(out_path)]
 		self._ffmpeg_log(f"Starte: {' '.join(cmd)}")
 		p = self._ffmpeg_prefix
 		v = self.view
@@ -403,6 +437,8 @@ class FfmpegOpsMixin:
 		self._start_copymove(filepath, prefix)
 
 	def _build_ffprobe_cmd(self, filepath, mode):
+		hwaccel_args = self._get_hwaccel_args(for_decode=True)
+		base_decode = [str(BASE_DIR / "ffmpeg.exe"), "-v", "info"] + hwaccel_args + ["-i", filepath]
 		if mode == "streams":
 			return [str(BASE_DIR / "ffprobe.exe"), "-v", "error",
 					"-show_streams", "-show_format", "-of", "json", filepath]
@@ -413,17 +449,13 @@ class FfmpegOpsMixin:
 			return [str(BASE_DIR / "ffprobe.exe"), "-v", "error",
 					"-select_streams", "v:0", "-show_frames", "-of", "json", filepath]
 		if mode == "freeze":
-			return [str(BASE_DIR / "ffmpeg.exe"), "-v", "info", "-i", filepath,
-					"-vf", "freezedetect", "-f", "null", "-"]
+			return base_decode + ["-vf", "freezedetect", "-f", "null", "-"]
 		if mode == "blackdetect":
-			return [str(BASE_DIR / "ffmpeg.exe"), "-v", "info", "-i", filepath,
-					"-vf", "blackdetect=d=1.0:pic_th=0.98", "-f", "null", "-"]
+			return base_decode + ["-vf", "blackdetect=d=1.0:pic_th=0.98", "-f", "null", "-"]
 		if mode == "scenedetect":
-			return [str(BASE_DIR / "ffmpeg.exe"), "-v", "info", "-i", filepath,
-					"-vf", "scdet", "-f", "null", "-"]
+			return base_decode + ["-vf", "scdet", "-f", "null", "-"]
 		if mode == "silencedetect":
-			return [str(BASE_DIR / "ffmpeg.exe"), "-v", "info", "-i", filepath,
-					"-af", "silencedetect=n=-30dB:d=0.5", "-f", "null", "-"]
+			return base_decode + ["-af", "silencedetect=n=-30dB:d=0.5", "-f", "null", "-"]
 		if mode == "bitrate":
 			return [str(BASE_DIR / "ffprobe.exe"), "-v", "error",
 					"-select_streams", "v:0", "-show_packets", "-of", "json", filepath]
