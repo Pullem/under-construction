@@ -5,7 +5,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QProcess, QThreadPool
 
 from ..model.base import BASE_DIR
-from ..worker import FfprobeWorker, ElaWorker, CopyMoveWorker, ResamplingWorker, JpegGridWorker, PostProcessWorker
+from ..worker import FfprobeWorker, VSMetadataWorker, ElaWorker, CopyMoveWorker, ResamplingWorker, JpegGridWorker, NoiseEstimatorWorker, SharpnessDetectorWorker, MotionAnalyzerWorker, VideoStabilizerWorker, PostProcessWorker
 from ..utils.gpu_config import get_gpu_config, check_cuda_available
 
 
@@ -403,6 +403,51 @@ class FfmpegOpsMixin:
 			self.threadpool.start(worker)
 			return
 
+		if mode == "noise":
+			self._ffmpeg_log_probe("Starte noise (async)...")
+			worker = NoiseEstimatorWorker(filepath)
+			worker.signals.result.connect(self._on_analysis_result)
+			worker.signals.error.connect(self._on_analysis_error)
+			self.threadpool.start(worker)
+			return
+
+		if mode == "sharpness":
+			self._ffmpeg_log_probe("Starte sharpness (async)...")
+			worker = SharpnessDetectorWorker(filepath)
+			worker.signals.result.connect(self._on_analysis_result)
+			worker.signals.error.connect(self._on_analysis_error)
+			self.threadpool.start(worker)
+			return
+
+		if mode == "motion":
+			self._ffmpeg_log_probe("Starte motion (async)...")
+			worker = MotionAnalyzerWorker(filepath)
+			worker.signals.result.connect(self._on_analysis_result)
+			worker.signals.error.connect(self._on_analysis_error)
+			self.threadpool.start(worker)
+			return
+
+		if mode == "stabilizer":
+			self._ffmpeg_log_probe("Starte stabilizer (async)...")
+			worker = VideoStabilizerWorker(filepath)
+			worker.signals.result.connect(self._on_analysis_result)
+			worker.signals.error.connect(self._on_analysis_error)
+			self.threadpool.start(worker)
+			return
+
+		# Use VapourSynth for basic video metadata (streams, quickcheck, format)
+		if mode in ("streams", "quickcheck", "format"):
+			self._ffmpeg_log_probe(f"Starte {mode} via VapourSynth (async)...")
+			vs_plugin_path = os.environ.get(
+				'VAPOURSYNTH_PLUGIN_PATH',
+				str(Path(__file__).parent.parent.parent / "vapoursynth_plugins" / "bestsource.dll")
+			)
+			worker = VSMetadataWorker(filepath, mode, vs_plugin_path)
+			worker.signals.result.connect(self._on_vsmetadata_result)
+			worker.signals.error.connect(self._on_vsmetadata_error)
+			self.threadpool.start(worker)
+			return
+
 		cmd = self._build_ffprobe_cmd(filepath, mode)
 		if not cmd:
 			self._ffmpeg_log_probe(f"Unbekannter Modus: {mode}")
@@ -487,6 +532,25 @@ class FfmpegOpsMixin:
 
 	def _on_ffprobe_error(self, mode, error_msg):
 		self._ffmpeg_log_probe(f"Fehler bei {mode}: {error_msg}")
+
+	def _on_vsmetadata_result(self, filepath, mode, metadata):
+		"""Handle VapourSynth metadata result"""
+		self._ffmpeg_log_probe(f"VapourSynth {mode} abgeschlossen.")
+		p = getattr(self, '_last_probe_prefix', 'video')
+		
+		if mode in ("streams", "quickcheck", "format"):
+			# Convert metadata dict to JSON string for display
+			import json
+			text_result = json.dumps(metadata, indent=2, ensure_ascii=False)
+			result_widget = getattr(self.view, f'{p}_result', None)
+			if result_widget:
+				result_widget.setPlainText(text_result)
+			self._switch_to_tab(p, mode)
+			# For compatibility, wrap in expected format
+			self.view.show_analysis_result(p, mode, {"metadata": metadata})
+
+	def _on_vsmetadata_error(self, filepath, error_msg):
+		self._ffmpeg_log_probe(f"VapourSynth Fehler: {error_msg}")
 
 	def _on_ela_result(self, mode, text_result, data):
 		self._ffmpeg_log_probe("ELA-Analyse abgeschlossen.")

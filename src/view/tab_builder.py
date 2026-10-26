@@ -577,6 +577,10 @@ def build_media_tab(view, name, prefix, is_video):
 			("silencedetect", "Silence-Detect"),
 			("bitrate", "Bitrate-Check"),
 			("quickcheck", "Quick-Check"),
+			("noise", "Rauschprofil"),
+			("sharpness", "Schärfe"),
+			("motion", "Bewegung"),
+			("stabilizer", "Stabilizer"),
 		]
 	else:
 		analyses = [

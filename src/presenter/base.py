@@ -267,14 +267,17 @@ class PresenterBase:
 				if thumb_dir and media_files:
 					case_id = self.model.current_case_id
 					if self._thumb_worker_running and self._thumb_worker_case_id == case_id:
-						logger.info("ThumbnailWorker already running – skipping start.")
+						logger.info("VSThumbnailWorker already running – skipping start.")
 					else:
-						from ..worker import ThumbnailWorker
 						self._thumbnail_generation += 1
 						gen = self._thumbnail_generation
 						self._thumb_worker_running = True
 						self._thumb_worker_case_id = case_id
-						worker = ThumbnailWorker(self.model, media_files, thumb_dir)
+						vs_plugin_path = os.environ.get(
+							'VAPOURSYNTH_PLUGIN_PATH',
+							str(Path(__file__).parent.parent.parent / "vapoursynth_plugins" / "bestsource.dll")
+						)
+						worker = VSThumbnailWorker(self.model, media_files, thumb_dir, vs_plugin_path)
 						worker.signals.chunk.connect(
 							lambda result, g=gen: self._on_thumbnails_chunk(result, g))
 						worker.signals.result.connect(
