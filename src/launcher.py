@@ -145,6 +145,7 @@ class CaseLauncher(QDialog):
 
 		btn_create = QPushButton("Fall erstellen")
 		btn_create.clicked.connect(self.create_case)
+		btn_create.setObjectName("btnPrimary")
 
 		new_layout.addWidget(self.txt_name)
 		new_layout.addWidget(self.txt_desc)
@@ -166,12 +167,44 @@ class CaseLauncher(QDialog):
 
 	def apply_style(self):
 		self.setStyleSheet("""
-			QDialog { background-color: #1a1a1a; color: white; }
-			QLabel { color: #aaa; }
-			QLineEdit, QTextEdit { background-color: #2d2d2d; color: white; border: 1px solid #444; padding: 5px; }
-			QPushButton { background-color: #0e639c; color: white; border: none; padding: 8px; font-weight: bold; }
-			QPushButton:hover { background-color: #1177bb; }
-			QListWidget { background-color: #252526; color: #eee; border: 1px solid #333; }
+			QDialog { background-color: #1a1a1a; color: #e6e6e6; }
+			QLabel { color: #cccccc; font-family: 'Segoe UI', sans-serif; }
+			QLineEdit, QTextEdit {
+				background-color: #2d2d2d; color: #ffffff;
+				border: 1px solid #454545; border-radius: 4px; padding: 6px 8px;
+				selection-background-color: #264f78; selection-color: #ffffff;
+			}
+			QLineEdit:focus, QTextEdit:focus { border-color: #2d7dd2; }
+			QPushButton {
+				background-color: #2f2f2f; color: #e6e6e6;
+				border: 1px solid #4a4a4a; border-radius: 4px; padding: 8px 12px;
+			}
+			QPushButton:hover { background-color: #3a3a3a; border-color: #5c5c5c; }
+			QPushButton:pressed { background-color: #262626; }
+			QPushButton:disabled { background-color: #242424; color: #6a6a6a; border-color: #333333; }
+			QPushButton#btnPrimary {
+				background-color: #0e639c; border-color: #0e639c;
+				color: #ffffff; font-weight: bold;
+			}
+			QPushButton#btnPrimary:hover { background-color: #1177bb; border-color: #1177bb; }
+			QPushButton#btnPrimary:pressed { background-color: #0a4f7f; border-color: #0a4f7f; }
+			QListWidget {
+				background-color: #252526; color: #eeeeee;
+				border: 1px solid #333333; border-radius: 4px; outline: none;
+			}
+			QListWidget::item {
+				padding: 7px 8px;
+				border-left: 2px solid transparent;
+				border-bottom: 1px solid #2a2a2a;
+			}
+			QListWidget::item:selected {
+				background-color: #094771; color: #ffffff; border-left: 2px solid #2d7dd2;
+			}
+			QListWidget::item:hover:!selected { background-color: #2e3134; }
+			QToolTip {
+				background-color: #2d2d2d; color: #e6e6e6;
+				border: 1px solid #5a5a5a; padding: 4px 8px;
+			}
 		""")
 
 	def load_cases(self):

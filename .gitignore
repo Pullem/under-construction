@@ -18,6 +18,8 @@
 *.jpg
 *.jpeg
 *.png
+# UI-Assets des View-Styles müssen versioniert werden (QSS url()-Referenzen)
+!src/view/assets/*.png
 *.db
 *.sqlite
 __pycache__/

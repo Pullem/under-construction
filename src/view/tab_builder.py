@@ -333,6 +333,7 @@ def build_case_tab(view):
 	view.d_incident = QDateEdit(first_of_month)
 	view.d_incident.setCalendarPopup(True)
 	view.d_incident.setDisplayFormat("dd.MM.yyyy")
+	view.d_incident.setMinimumWidth(140)
 	tatzeit_layout.addWidget(view.d_incident)
 	view.t_incident = QTimeEdit(QTime(0, 0))
 	view.t_incident.setDisplayFormat("HH:mm")
@@ -343,6 +344,7 @@ def build_case_tab(view):
 	view.d_incident_until = QDateEdit(first_of_month)
 	view.d_incident_until.setCalendarPopup(True)
 	view.d_incident_until.setDisplayFormat("dd.MM.yyyy")
+	view.d_incident_until.setMinimumWidth(140)
 	view.d_incident_until.setVisible(False)
 	tatzeit_layout.addWidget(view.d_incident_until)
 	view.t_incident_until = QTimeEdit(QTime(0, 0))
@@ -354,6 +356,7 @@ def build_case_tab(view):
 
 	btn_create = QPushButton("Fall erstellen")
 	btn_create.clicked.connect(view._on_create_case)
+	btn_create.setObjectName("btnPrimary")
 	layout.addWidget(btn_create)
 
 	layout.addSpacing(20)
@@ -383,6 +386,7 @@ def build_import_tab(view):
 	btn_import = QPushButton("Import-Dialog öffnen")
 	btn_import.setMinimumHeight(80)
 	btn_import.clicked.connect(view.import_media_requested.emit)
+	btn_import.setObjectName("btnPrimary")
 	layout.addWidget(btn_import)
 
 	layout.addStretch()
@@ -412,7 +416,9 @@ def build_metadata_tab(view):
 	view.thumb_label = QLabel("Vorschau")
 	view.thumb_label.setFixedSize(320, 180)
 	view.thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-	view.thumb_label.setStyleSheet("border: 2px solid #333; background: black;")
+	view.thumb_label.setStyleSheet(
+		"border: 1px solid #3c3c3c; border-radius: 4px; background-color: #000000; color: #777777;"
+	)
 
 	view.tabs = QTabWidget()
 	view.tabs.setDocumentMode(True)
@@ -457,7 +463,7 @@ def build_media_tab(view, name, prefix, is_video):
 	file_layout = QHBoxLayout()
 	file_layout.addWidget(QLabel("Datei:"))
 	file_label = QLabel("–")
-	file_label.setStyleSheet("color: #aaa;")
+	file_label.setStyleSheet("color: #b0b0b0;")
 	setattr(view, f"{prefix}_file_label", file_label)
 	file_layout.addWidget(file_label, 1)
 	setattr(view, f"{prefix}_input_path", "")
@@ -490,7 +496,7 @@ def build_media_tab(view, name, prefix, is_video):
 	# Parameter (nur Videos)
 	if is_video:
 		params_group = QWidget()
-		params_group.setStyleSheet("QWidget#ffmpeg_params { border: 1px solid #444; padding: 6px; }")
+		params_group.setStyleSheet("QWidget#ffmpeg_params { border: 1px solid #3c3c3c; border-radius: 6px; padding: 8px; }")
 		params_group.setObjectName("ffmpeg_params")
 		param_layout = QHBoxLayout(params_group)
 
@@ -537,7 +543,7 @@ def build_media_tab(view, name, prefix, is_video):
 		date_layout = QHBoxLayout()
 		date_layout.addWidget(QLabel("encoded:"))
 		encoded_label = QLabel("–")
-		encoded_label.setStyleSheet("color: #888;")
+		encoded_label.setStyleSheet("color: #9a9a9a;")
 		setattr(view, f"{prefix}_encoded_label", encoded_label)
 		date_layout.addWidget(encoded_label)
 		utc_combo = QComboBox()
@@ -596,6 +602,7 @@ def build_media_tab(view, name, prefix, is_video):
 	for mode, title in analyses:
 		btn = QPushButton(title)
 		btn.clicked.connect(lambda checked, m=mode: view._on_ffprobe_analyse(m))
+		btn.setObjectName("btnAnalysis")
 		setattr(view, f"{prefix}_btn_{mode}", btn)
 		analysis_toolbar.addWidget(btn, 1 if not is_video else 0)
 
@@ -625,7 +632,7 @@ def build_media_tab(view, name, prefix, is_video):
 			[(f"b{i}", f"Dummy B{i}") for i in range(2, 9)]
 	for mode, title in plugin_items:
 		btn = QPushButton(title)
-		btn.setStyleSheet("border: 1px solid #555;")
+		btn.setStyleSheet("border: 1px solid #4a4a4a;")
 		btn.clicked.connect(lambda checked, m=mode: view._on_plugin_btn_clicked(m))
 		setattr(view, f"{prefix}_pbtn_{mode}", btn)
 		plugin_toolbar.addWidget(btn, 1 if not is_video else 0)
@@ -636,7 +643,11 @@ def build_media_tab(view, name, prefix, is_video):
 
 	analysis_result = QPlainTextEdit()
 	analysis_result.setReadOnly(True)
-	analysis_result.setStyleSheet("background: #111; color: #0f0; font-family: Consolas; font-size: 9pt;")
+	analysis_result.setStyleSheet(
+		"background-color: #0d0d0d; color: #4ec94e; font-family: Consolas; font-size: 9pt; "
+		"border: 1px solid #333333; border-radius: 4px; padding: 6px; "
+		"selection-background-color: #1e4d2b; selection-color: #e8ffe8;"
+	)
 	setattr(view, f"{prefix}_result", analysis_result)
 
 	if is_video:
@@ -677,6 +688,7 @@ def build_media_tab(view, name, prefix, is_video):
 		btn_run = QPushButton("▶ Ausführen")
 		btn_run.setMinimumHeight(36)
 		btn_run.clicked.connect(view._on_ffmpeg_run)
+		btn_run.setObjectName("btnPrimary")
 		setattr(view, f"{prefix}_btn_run", btn_run)
 		run_layout.addWidget(btn_run)
 
@@ -684,7 +696,9 @@ def build_media_tab(view, name, prefix, is_video):
 		btn_abort.setMinimumHeight(36)
 		btn_abort.setEnabled(False)
 		btn_abort.clicked.connect(view._on_ffmpeg_abort)
-		btn_abort.setStyleSheet("color: #ff6666;")
+		btn_abort.setStyleSheet(
+			"QPushButton { color: #ff8a80; } QPushButton:disabled { color: #8a5a5a; }"
+		)
 		setattr(view, f"{prefix}_btn_abort", btn_abort)
 		run_layout.addWidget(btn_abort)
 
@@ -697,7 +711,11 @@ def build_media_tab(view, name, prefix, is_video):
 		ffmpeg_log = QPlainTextEdit()
 		ffmpeg_log.setReadOnly(True)
 		ffmpeg_log.setMaximumBlockCount(1000)
-		ffmpeg_log.setStyleSheet("background: #111; color: #0f0; font-family: Consolas; font-size: 9pt;")
+		ffmpeg_log.setStyleSheet(
+			"background-color: #0d0d0d; color: #4ec94e; font-family: Consolas; font-size: 9pt; "
+			"border: 1px solid #333333; border-radius: 4px; padding: 6px; "
+			"selection-background-color: #1e4d2b; selection-color: #e8ffe8;"
+		)
 		setattr(view, f"{prefix}_log", ffmpeg_log)
 		right_layout.addWidget(ffmpeg_log, 1)
 
@@ -753,19 +771,19 @@ def build_settings_tab(view):
 	# GPU Status Section
 	layout.addWidget(QLabel("<b>GPU-Beschleunigung (RTX 2080 Super)</b>"))
 	view.lbl_gpu_status = QLabel("Prüfe...")
-	view.lbl_gpu_status.setStyleSheet("background-color: #2d2d2d; color: #ccc; padding: 6px; border: 1px solid #444;")
+	view.lbl_gpu_status.setStyleSheet("background-color: #252526; color: #b8b8b8; padding: 7px 9px; border: 1px solid #3c3c3c; border-radius: 4px;")
 	layout.addWidget(view.lbl_gpu_status)
 	layout.addSpacing(15)
 
 	layout.addWidget(QLabel("Datenbank-Benutzer:"))
 	view.lbl_db_user = QLabel("—")
-	view.lbl_db_user.setStyleSheet("background-color: #2d2d2d; color: #ccc; padding: 6px; border: 1px solid #444;")
+	view.lbl_db_user.setStyleSheet("background-color: #252526; color: #b8b8b8; padding: 7px 9px; border: 1px solid #3c3c3c; border-radius: 4px;")
 	layout.addWidget(view.lbl_db_user)
 
 	layout.addWidget(QLabel("Datenbank-Passwort:"))
 	pw_layout = QHBoxLayout()
 	view.lbl_db_password = QLabel("—")
-	view.lbl_db_password.setStyleSheet("background-color: #2d2d2d; color: #ccc; padding: 6px; border: 1px solid #444;")
+	view.lbl_db_password.setStyleSheet("background-color: #252526; color: #b8b8b8; padding: 7px 9px; border: 1px solid #3c3c3c; border-radius: 4px;")
 	view.lbl_db_password.setMinimumWidth(200)
 	view.lbl_db_password.setWordWrap(True)
 	pw_layout.addWidget(view.lbl_db_password, 1)
@@ -780,7 +798,7 @@ def build_settings_tab(view):
 	layout.addWidget(QLabel("MariaDB-Root-Passwort:"))
 	root_pw_layout = QHBoxLayout()
 	view.lbl_root_password = QLabel("—")
-	view.lbl_root_password.setStyleSheet("background-color: #2d2d2d; color: #ccc; padding: 6px; border: 1px solid #444;")
+	view.lbl_root_password.setStyleSheet("background-color: #252526; color: #b8b8b8; padding: 7px 9px; border: 1px solid #3c3c3c; border-radius: 4px;")
 	view.lbl_root_password.setMinimumWidth(200)
 	view.lbl_root_password.setWordWrap(True)
 	root_pw_layout.addWidget(view.lbl_root_password, 1)
@@ -820,12 +838,13 @@ def build_settings_tab(view):
 	layout.addSpacing(15)
 	layout.addWidget(QLabel("<b>Zeitzone (automatisch erkannt)</b>"))
 	view.lbl_tz_info = QLabel("–")
-	view.lbl_tz_info.setStyleSheet("color: #8f8; font-weight: bold; padding-left: 8px;")
+	view.lbl_tz_info.setStyleSheet("color: #7ddc7d; font-weight: bold; padding-left: 8px;")
 	layout.addWidget(view.lbl_tz_info)
 
 	layout.addSpacing(10)
 	btn_save = QPushButton("Einstellungen speichern")
 	btn_save.clicked.connect(view._on_save_settings)
+	btn_save.setObjectName("btnPrimary")
 	layout.addWidget(btn_save)
 
 	layout.addStretch()
@@ -844,14 +863,14 @@ def build_hex_tab(view):
 	# Toolbar Zeile 1: Datei + Schrift + Offset
 	toolbar = QHBoxLayout()
 	view.hex_file_label = QLabel("–")
-	view.hex_file_label.setStyleSheet("color: #aaa;")
+	view.hex_file_label.setStyleSheet("color: #b0b0b0;")
 	toolbar.addWidget(view.hex_file_label, 1)
 
 	toolbar.addWidget(QLabel("Schrift:"))
 	view.hex_font_spin = QSpinBox()
 	view.hex_font_spin.setRange(6, 24)
 	view.hex_font_spin.setValue(9)
-	view.hex_font_spin.setFixedWidth(50)
+	view.hex_font_spin.setFixedWidth(70)
 	view.hex_font_spin.valueChanged.connect(view._on_hex_font_size)
 	toolbar.addWidget(view.hex_font_spin)
 
@@ -881,7 +900,7 @@ def build_hex_tab(view):
 	view.hex_search_mode.addItem("Hex", "hex")
 	view.hex_search_mode.addItem("ASCII", "ascii")
 	view.hex_search_mode.addItem("Text", "text")
-	view.hex_search_mode.setFixedWidth(80)
+	view.hex_search_mode.setFixedWidth(110)
 	search_bar.addWidget(view.hex_search_mode)
 	view.hex_search_btn = QPushButton("Suchen")
 	view.hex_search_btn.clicked.connect(view._on_hex_search)
@@ -895,18 +914,18 @@ def build_hex_tab(view):
 	view.hex_search_next.clicked.connect(view._on_hex_search_next)
 	search_bar.addWidget(view.hex_search_next)
 	view.hex_search_status = QLabel("")
-	view.hex_search_status.setStyleSheet("color: #888;")
+	view.hex_search_status.setStyleSheet("color: #9a9a9a;")
 	search_bar.addWidget(view.hex_search_status)
 	search_bar.addStretch()
 	layout.addLayout(search_bar)
 
 	view.hex_viewer = HexViewWidget()
-	view.hex_viewer.setStyleSheet("border: 1px solid #333;")
+	view.hex_viewer.setStyleSheet("border: 1px solid #3c3c3c;")
 	view.hex_viewer.search_moved.connect(view._on_hex_search_moved)
 	layout.addWidget(view.hex_viewer, 1)
 
 	view.hex_status = QLabel("–")
-	view.hex_status.setStyleSheet("color: #888;")
+	view.hex_status.setStyleSheet("color: #9a9a9a;")
 	layout.addWidget(view.hex_status)
 
 	view.nav_bar.addTab("Hex-Viewer")

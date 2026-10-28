@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 							 QDateEdit, QTimeEdit, QCheckBox, QComboBox, QSlider,
 						 QPlainTextEdit, QProgressBar, QGridLayout, QFileDialog,
 						 QSpinBox)
-from PyQt6.QtCore import pyqtSignal, Qt, QSize, QDate, QTime, QDateTime
+from PyQt6.QtCore import pyqtSignal, Qt, QSize, QRect, QDate, QTime, QDateTime
 from PyQt6.QtGui import QPixmap, QPainter, QColor
 
 from .hex_view import HexViewWidget
@@ -26,14 +26,38 @@ from ..utils.gpu_config import get_gpu_config, check_cuda_available
 # CUSTOM TAB BAR (flaches Design, horizontale Schrift)
 # ---------------------------------------------------------
 class FlatTabBar(QTabBar):
+	# Farbtokens der Navigation (dunkles Design)
+	_BG = QColor("#1a1a1a")
+	_BG_HOVER = QColor("#242424")
+	_BG_SELECTED = QColor("#252526")
+	_TEXT = QColor("#9a9a9a")
+	_TEXT_HOVER = QColor("#dcdcdc")
+	_TEXT_SELECTED = QColor("#ffffff")
+	_ACCENT = QColor("#2d7dd2")
+	_SEPARATOR = QColor("#2a2a2a")
+
 	def __init__(self, parent=None):
 		super().__init__(parent)
 		self.setDrawBase(False)
 		self.setExpanding(True)
+		self.setMouseTracking(True)
+		self._hover_index = -1
 
 	def tabSizeHint(self, index):
 		s = super().tabSizeHint(index)
 		return QSize(max(s.width() + 30, 180), 40)
+
+	# Hover-Zustand nur visuell verfolgen (keine Funktionsänderung)
+	def mouseMoveEvent(self, event):
+		super().mouseMoveEvent(event)
+		idx = self.tabAt(event.position().toPoint())
+		if idx != self._hover_index:
+			self._hover_index = idx
+			self.update()
+
+	def leaveEvent(self, event):
+		self._hover_index = -1
+		super().leaveEvent(event)
 
 	def paintEvent(self, event):
 		painter = QPainter(self)
@@ -44,19 +68,46 @@ class FlatTabBar(QTabBar):
 			self.initStyleOption(opt, idx)
 			rect = opt.rect
 			selected = bool(opt.state & QStyle.StateFlag.State_Selected)
+			hovered = (idx == self._hover_index and not selected)
 
+			# Hintergrund je nach Zustand
+			if selected:
+				bg = self._BG_SELECTED
+			elif hovered:
+				bg = self._BG_HOVER
+			else:
+				bg = self._BG
 			painter.save()
 			painter.setPen(Qt.PenStyle.NoPen)
-			painter.setBrush(QColor("#094771" if selected else "#2d2d2d"))
+			painter.setBrush(bg)
 			painter.drawRect(rect)
+
+			# Feine Trennlinie zwischen den Einträgen
+			painter.setPen(self._SEPARATOR)
+			painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+
+			# Akzent-Balken links für den aktiven Eintrag
 			if selected:
-				painter.setPen(QColor("#0e639c"))
-				painter.drawLine(rect.topLeft(), rect.bottomLeft())
+				painter.setPen(Qt.PenStyle.NoPen)
+				painter.setBrush(self._ACCENT)
+				painter.drawRoundedRect(
+					QRect(rect.left() + 1, rect.top() + 8, 3, max(rect.height() - 16, 4)),
+					1.5, 1.5)
 			painter.restore()
 
-			text = self.tabText(idx)
-			painter.setPen(QColor("#ffffff" if selected else "#888888"))
-			painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
+			# Typografie: aktiver Eintrag fett und hell
+			font = painter.font()
+			font.setBold(selected)
+			painter.setFont(font)
+			if selected:
+				painter.setPen(self._TEXT_SELECTED)
+			elif hovered:
+				painter.setPen(self._TEXT_HOVER)
+			else:
+				painter.setPen(self._TEXT)
+			painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.tabText(idx))
+			font.setBold(False)
+			painter.setFont(font)
 
 
 # ---------------------------------------------------------
@@ -298,7 +349,10 @@ class MainWindowMixin(QMainWindow):
 				btn = getattr(self, attr_name)
 				btn_m = attr_name[len(f"{prefix}_btn_"):]
 				if btn_m == mode:
-					btn.setStyleSheet("background-color: #2a6d2a; color: white; font-weight: bold;")
+					btn.setStyleSheet(
+						"QPushButton { background-color: #2e7d32; color: #ffffff; "
+						"border: 1px solid #43a047; font-weight: bold; }"
+					)
 				else:
 					btn.setStyleSheet("")
 		path = self.ffmpeg_input_path
@@ -461,7 +515,8 @@ class MainWindowMixin(QMainWindow):
 					f"   Decode: {config.decode_hwaccel.upper()} | Thumbnail HW: {'Ja' if config.thumbnail_hwaccel else 'Nein'}"
 				)
 				self.lbl_gpu_status.setStyleSheet(
-					"background-color: #1a3a1a; color: #8f8; padding: 6px; border: 1px solid #4a7a4a;"
+					"background-color: #14311c; color: #7ddc7d; padding: 8px 10px; "
+					"border: 1px solid #2e6b3f; border-radius: 4px;"
 				)
 			elif config.enabled and not cuda_available:
 				self.lbl_gpu_status.setText(
@@ -469,19 +524,22 @@ class MainWindowMixin(QMainWindow):
 					"Fallback auf CPU-Berechnung"
 				)
 				self.lbl_gpu_status.setStyleSheet(
-					"background-color: #3a3a1a; color: #ff8; padding: 6px; border: 1px solid #7a7a4a;"
+					"background-color: #3a3115; color: #ffd666; padding: 8px 10px; "
+					"border: 1px solid #7a6a2a; border-radius: 4px;"
 				)
 			else:
 				self.lbl_gpu_status.setText(
 					"❌ GPU deaktiviert (config/gpu.ini: enabled=false)"
 				)
 				self.lbl_gpu_status.setStyleSheet(
-					"background-color: #3a1a1a; color: #f88; padding: 6px; border: 1px solid #7a4a4a;"
+					"background-color: #3a1c1c; color: #ff9a9a; padding: 8px 10px; "
+					"border: 1px solid #7a3a3a; border-radius: 4px;"
 				)
 		except Exception as e:
 			self.lbl_gpu_status.setText(f"❌ GPU-Status Fehler: {e}")
 			self.lbl_gpu_status.setStyleSheet(
-				"background-color: #3a1a1a; color: #f88; padding: 6px; border: 1px solid #7a4a4a;"
+				"background-color: #3a1c1c; color: #ff9a9a; padding: 8px 10px; "
+				"border: 1px solid #7a3a3a; border-radius: 4px;"
 			)
 
 	def _on_bis_toggled(self, checked):
@@ -514,28 +572,349 @@ class MainWindowMixin(QMainWindow):
 		self._case_path = path
 
 	def apply_dark_style(self):
+		"""Einheitliches dunkles Farbschema (rein grafisch, keine Logikänderung)."""
+		from pathlib import Path
+		assets = (Path(__file__).resolve().parent / "assets").as_posix().replace("\\", "/")
+
 		style = """
+			/* ===== Grundflächen ===== */
 			QMainWindow { background-color: #1a1a1a; }
-			QLabel { color: #ccc; font-family: 'Segoe UI', sans-serif; }
-
-			QListWidget { background-color: #252526; color: #eee; border: 1px solid #333; outline: none; }
-			QListWidget::item { padding: 8px; border-bottom: 1px solid #2d2d2d; }
-			QListWidget::item:selected { background-color: #094771; color: white; border-left: 4px solid #0e639c; }
-
-			QPushButton { background-color: #333; color: white; border: 1px solid #555; padding: 10px; font-weight: bold; }
-			QPushButton:hover { background-color: #444; border-color: #666; }
-			QLineEdit { background-color: #2d2d2d; color: white; border: 1px solid #444; padding: 6px; }
-			QTextEdit { background-color: #2d2d2d; color: white; border: 1px solid #444; padding: 6px; }
-
+			QDialog { background-color: #1a1a1a; color: #e6e6e6; }
 			QStackedWidget { background-color: #1e1e1e; border: none; }
-			QTabWidget::pane { border: 1px solid #333; background-color: #1e1e1e; }
-			QTabBar::tab { background-color: #2d2d2d; color: #888; padding: 8px 12px; border: 1px solid #333; border-bottom: 2px solid #444; }
-			QTabBar::tab:selected { background-color: #1e1e1e; color: #fff; border-bottom: 2px solid #0e639c; }
-			QTabBar::tab:hover { background-color: #333; }
+			QTabWidget::pane { border: 1px solid #333333; background-color: #1e1e1e; }
+			QScrollArea { border: none; background-color: transparent; }
 
-			QHeaderView::section { background-color: #2d2d2d; color: #aaa; padding: 5px; border: 1px solid #111; }
-			QTableWidget { background-color: #1e1e1e; color: #ddd; gridline-color: #2d2d2d; border: none; }
-		"""
+			/* ===== Beschriftungen ===== */
+			QLabel { color: #cccccc; font-family: 'Segoe UI', sans-serif; }
+
+			/* ===== Innere Registerkarten ===== */
+			QTabBar::tab {
+				background-color: #2d2d2d;
+				color: #8f8f8f;
+				padding: 7px 14px;
+				border: 1px solid #333333;
+				border-bottom: 2px solid #444444;
+				border-top-left-radius: 4px;
+				border-top-right-radius: 4px;
+			}
+			QTabBar::tab:selected {
+				background-color: #1e1e1e;
+				color: #ffffff;
+				border-bottom: 2px solid #2d7dd2;
+			}
+			QTabBar::tab:hover:!selected { background-color: #383838; color: #d0d0d0; }
+			QTabBar::tab:disabled { color: #666666; }
+
+			/* ===== Schaltflächen ===== */
+			QPushButton {
+				background-color: #2f2f2f;
+				color: #e6e6e6;
+				border: 1px solid #4a4a4a;
+				border-radius: 4px;
+				padding: 6px 10px;
+			}
+			QPushButton:hover { background-color: #3a3a3a; border-color: #5c5c5c; }
+			QPushButton:pressed { background-color: #262626; border-color: #444444; }
+			QPushButton:disabled { background-color: #242424; color: #6a6a6a; border-color: #333333; }
+			QPushButton:checked { background-color: #094771; border-color: #1177bb; color: #ffffff; }
+			QPushButton:focus { border-color: #2d7dd2; }
+			QPushButton#btnPrimary {
+				background-color: #0e639c;
+				border-color: #0e639c;
+				color: #ffffff;
+				font-weight: bold;
+			}
+			QPushButton#btnPrimary:hover { background-color: #1177bb; border-color: #1177bb; }
+			QPushButton#btnPrimary:pressed { background-color: #0a4f7f; border-color: #0a4f7f; }
+			QPushButton#btnPrimary:disabled {
+				background-color: #243a4a; color: #6a8296; border-color: #2d4a5e;
+			}
+			/* Kompakte Analyse-Buttons (verhindert beschnittene Beschriftungen) */
+			QPushButton#btnAnalysis { padding: 5px 6px; }
+
+			/* ===== Eingabefelder ===== */
+			QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox,
+			QDoubleSpinBox, QDateEdit, QTimeEdit {
+				background-color: #2d2d2d;
+				color: #ffffff;
+				border: 1px solid #454545;
+				border-radius: 4px;
+				padding: 5px 8px;
+				selection-background-color: #264f78;
+				selection-color: #ffffff;
+			}
+			QLineEdit:hover, QTextEdit:hover, QPlainTextEdit:hover, QComboBox:hover,
+			QSpinBox:hover, QDoubleSpinBox:hover, QDateEdit:hover, QTimeEdit:hover {
+				border-color: #5c5c5c;
+			}
+			QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus,
+			QSpinBox:focus, QDoubleSpinBox:focus, QDateEdit:focus, QTimeEdit:focus {
+				border-color: #2d7dd2;
+				background-color: #313131;
+			}
+			QLineEdit:disabled, QTextEdit:disabled, QPlainTextEdit:disabled,
+			QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled,
+			QDateEdit:disabled, QTimeEdit:disabled {
+				background-color: #242424; color: #6f6f6f; border-color: #333333;
+			}
+			/* Innerer Editor von SpinBox/Datum (kein doppelter Rahmen) */
+			QLineEdit#qt_spinbox_lineedit {
+				padding: 0;
+				border: none;
+				background-color: transparent;
+			}
+
+			/* ===== Auswahllisten (Combobox) ===== */
+			QComboBox { padding: 5px 28px 5px 8px; }
+			QComboBox::drop-down {
+				subcontrol-origin: padding;
+				subcontrol-position: center right;
+				width: 24px;
+				border-left: 1px solid #454545;
+				background-color: transparent;
+			}
+			QComboBox::down-arrow {
+				image: url("%(assets)s/arrow_down.png");
+				width: 9px;
+				height: 6px;
+			}
+			QComboBox QAbstractItemView {
+				background-color: #252526;
+				color: #e6e6e6;
+				border: 1px solid #4a4a4a;
+				selection-background-color: #094771;
+				selection-color: #ffffff;
+				outline: 0;
+			}
+
+			/* ===== Datum / Uhrzeit / Spinner ===== */
+			QDateTimeEdit { padding: 5px 26px 5px 8px; }
+			QDateTimeEdit::up-button, QSpinBox::up-button, QDoubleSpinBox::up-button {
+				subcontrol-origin: border;
+				subcontrol-position: top right;
+				width: 18px;
+				border-left: 1px solid #454545;
+				border-bottom: none;
+				background-color: transparent;
+			}
+			QDateTimeEdit::down-button, QSpinBox::down-button, QDoubleSpinBox::down-button {
+				subcontrol-origin: border;
+				subcontrol-position: bottom right;
+				width: 18px;
+				border-left: 1px solid #454545;
+				border-top: none;
+				background-color: transparent;
+			}
+			QDateTimeEdit::up-arrow, QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+				image: url("%(assets)s/arrow_up.png");
+				width: 9px;
+				height: 6px;
+			}
+			QDateTimeEdit::down-arrow, QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+				image: url("%(assets)s/arrow_down.png");
+				width: 9px;
+				height: 6px;
+			}
+			QDateTimeEdit::calendar-button {
+				subcontrol-origin: padding;
+				subcontrol-position: center right;
+				width: 24px;
+				border-left: 1px solid #454545;
+				background-color: transparent;
+				image: url("%(assets)s/calendar.png");
+			}
+
+			/* ===== Kalender-Popup ===== */
+			QCalendarWidget { background-color: #252526; }
+			QCalendarWidget QToolButton {
+				background-color: #2f2f2f;
+				color: #e6e6e6;
+				border: 1px solid #454545;
+				border-radius: 3px;
+				padding: 3px 6px;
+				margin: 1px;
+			}
+			QCalendarWidget QToolButton:hover { background-color: #3a3a3a; }
+			QCalendarWidget QAbstractItemView {
+				background-color: #252526;
+				color: #e6e6e6;
+				selection-background-color: #094771;
+				selection-color: #ffffff;
+				outline: 0;
+			}
+			QCalendarWidget QSpinBox, QCalendarWidget QComboBox {
+				background-color: #2d2d2d;
+				color: #ffffff;
+				border: 1px solid #454545;
+				border-radius: 3px;
+			}
+
+			/* ===== Kontrollkästchen ===== */
+			QCheckBox { spacing: 7px; color: #e0e0e0; }
+			QCheckBox::indicator {
+				width: 15px;
+				height: 15px;
+				border: 1px solid #5a5a5a;
+				border-radius: 3px;
+				background-color: #2d2d2d;
+			}
+			QCheckBox::indicator:hover { border-color: #2d7dd2; }
+			QCheckBox::indicator:checked {
+				background-color: #0e639c;
+				border-color: #1177bb;
+				image: url("%(assets)s/check.png");
+			}
+			QCheckBox::indicator:disabled {
+				background-color: #242424;
+				border-color: #444444;
+			}
+			QCheckBox:disabled { color: #6f6f6f; }
+
+			/* ===== Listen ===== */
+			QListWidget {
+				background-color: #252526;
+				color: #eeeeee;
+				border: 1px solid #333333;
+				border-radius: 4px;
+				padding: 2px;
+				outline: none;
+			}
+			QListWidget::item {
+				padding: 7px 8px;
+				border-left: 2px solid transparent;
+				border-bottom: 1px solid #2a2a2a;
+			}
+			QListWidget::item:selected {
+				background-color: #094771;
+				color: #ffffff;
+				border-left: 2px solid #2d7dd2;
+			}
+			QListWidget::item:hover:!selected { background-color: #2e3134; }
+
+			/* ===== Tabellen ===== */
+			QHeaderView::section {
+				background-color: #252526;
+				color: #b0b0b0;
+				padding: 6px 8px;
+				border: none;
+				border-right: 1px solid #333333;
+				border-bottom: 1px solid #333333;
+			}
+			QTableWidget {
+				background-color: #1e1e1e;
+				color: #dddddd;
+				gridline-color: #2d2d2d;
+				border: 1px solid #333333;
+				selection-background-color: #094771;
+				selection-color: #ffffff;
+			}
+
+			/* ===== Schieberegler ===== */
+			QSlider::groove:horizontal {
+				height: 4px;
+				background-color: #3c3c3c;
+				border-radius: 2px;
+			}
+			QSlider::sub-page:horizontal {
+				background-color: #0e639c;
+				border-radius: 2px;
+			}
+			QSlider::handle:horizontal {
+				width: 14px;
+				margin: -5px 0;
+				border-radius: 7px;
+				background-color: #e8e8e8;
+				border: 1px solid #0e639c;
+			}
+			QSlider::handle:horizontal:hover { background-color: #ffffff; }
+
+			/* ===== Fortschritt ===== */
+			QProgressBar {
+				background-color: #2d2d2d;
+				border: 1px solid #454545;
+				border-radius: 4px;
+				text-align: center;
+				color: #e6e6e6;
+				min-height: 16px;
+			}
+			QProgressBar::chunk {
+				background-color: #0e639c;
+				border-radius: 3px;
+			}
+
+			/* ===== Bildlaufleisten ===== */
+			QScrollBar:vertical {
+				background-color: #1a1a1a;
+				width: 12px;
+				margin: 0;
+				border: none;
+			}
+			QScrollBar::handle:vertical {
+				background-color: #4d4d4d;
+				min-height: 30px;
+				width: 8px;
+				margin: 2px;
+				border-radius: 4px;
+			}
+			QScrollBar::handle:vertical:hover { background-color: #606060; }
+			QScrollBar:horizontal {
+				background-color: #1a1a1a;
+				height: 12px;
+				margin: 0;
+				border: none;
+			}
+			QScrollBar::handle:horizontal {
+				background-color: #4d4d4d;
+				min-width: 30px;
+				height: 8px;
+				margin: 2px;
+				border-radius: 4px;
+			}
+			QScrollBar::handle:horizontal:hover { background-color: #606060; }
+			QScrollBar::add-line, QScrollBar::sub-line {
+				width: 0;
+				height: 0;
+				border: none;
+				background-color: transparent;
+			}
+			QScrollBar::add-page, QScrollBar::sub-page {
+				background-color: transparent;
+			}
+			QScrollBar::corner { background-color: transparent; }
+
+			/* ===== Teiler ===== */
+			QSplitter::handle { background-color: #333333; }
+			QSplitter::handle:horizontal { width: 2px; }
+			QSplitter::handle:vertical { height: 2px; }
+			QSplitter::handle:hover { background-color: #2d7dd2; }
+			QSplitter::handle:pressed { background-color: #1177bb; }
+
+			/* ===== Kontextmenüs und Hinweise ===== */
+			QMenu {
+				background-color: #252526;
+				color: #e0e0e0;
+				border: 1px solid #4a4a4a;
+				padding: 4px;
+			}
+			QMenu::item {
+				padding: 6px 26px 6px 14px;
+				border-radius: 3px;
+			}
+			QMenu::item:selected { background-color: #094771; color: #ffffff; }
+			QMenu::item:disabled { color: #6f6f6f; }
+			QMenu::separator { height: 1px; background-color: #3c3c3c; margin: 4px 8px; }
+			QToolTip {
+				background-color: #2d2d2d;
+				color: #e6e6e6;
+				border: 1px solid #5a5a5a;
+				padding: 4px 8px;
+			}
+			QMessageBox { background-color: #1e1e1e; }
+
+			/* ===== Statusleiste ===== */
+			QStatusBar { background-color: #1f1f1f; color: #b0b0b0; }
+			QStatusBar::item { border: none; }
+		""" % {"assets": assets}
 		self.setStyleSheet(style)
 
 	def update_file_list(self, files):

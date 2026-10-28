@@ -5,6 +5,7 @@
 Dieses Projekt ist ein modularer Video- und Bild-Forensik-Analyzer.
 
 Ziel ist eine stabile, nachvollziehbare und erweiterbare Anwendung zur Analyse von Bildern und Videos.
+Der Schwerpunkt liegt auf der täglichen Praxis eines Bild- und Video-Forensikers.
 
 Technologien:
 
@@ -428,3 +429,17 @@ Geplante Worker, umgesetzt nach dem Muster aus Abschnitt 18 (`QRunnable` + `...W
 | `FrameRateEstimatorWorker` | Effektive Bildrate schätzen (Anomalien der Framerate) |
 
 Bei Umsetzung gilt Abschnitt 18 vollständig. Ergebnisse sind nach Abschnitt 13 als Indikator/Score darzustellen, nicht als Aussage „Bild/Video ist gefälscht".
+
+---
+
+## 22. Tool Calling – Ollama / Qwen3 Coder
+
+- Wenn du ein Tool benötigst, rufe es unmittelbar auf, bevor du erklärenden Text oder einen Arbeitsplan ausgibst.
+- Gib vor einem Tool-Aufruf keine Statusmeldung, Zusammenfassung oder Ankündigung aus.
+- Gib Tool-Aufrufe niemals als JSON, XML oder sonstigen Text aus. Verwende ausschließlich echte, vom Agenten-Framework unterstützte Tool-Aufrufe.
+- Warte nach einem Tool-Aufruf auf dessen Ergebnis und setze die Aufgabe danach selbstständig fort.
+- Arbeite die angeforderte Aufgabe vollständig ab. Beende den Lauf nicht lediglich mit einer Liste noch ausstehender Schritte.
+- Wenn weitere Dateioperationen erforderlich sind, führe sie direkt aus, statt nur anzukündigen, dass du die Dateien untersuchen wirst.
+- Berichte erst dann über den Arbeitsfortschritt, wenn ein sinnvoller Arbeitsschritt abgeschlossen ist.
+
+
