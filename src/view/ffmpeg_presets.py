@@ -2,7 +2,7 @@ from PyQt6.QtCore import QTime
 
 
 def _prefix(view):
-	from .tab_builder import active_media_prefix
+	from .tabs import active_media_prefix
 	return active_media_prefix(view)
 
 
