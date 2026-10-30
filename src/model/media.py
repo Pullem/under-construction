@@ -19,6 +19,13 @@ if hasattr(cv2, "setLogLevel"):
 logger = logging.getLogger(__name__)
 
 
+class DuplicateMediaError(Exception):
+	"""Datei mit gleichem SHA256-Hash ist bereits in diesem Fall vorhanden.
+
+	Erwarteter Zustand der Deduplizierung – kein technischer Fehler.
+	"""
+
+
 class MediaMixin:
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
@@ -111,7 +118,7 @@ class MediaMixin:
 				(f_hash, self.current_case_id)
 			)
 			if cur.fetchone():
-				raise Exception(
+				raise DuplicateMediaError(
 					"Datei wurde bereits in diesen Fall importiert (gleicher SHA256-Hash)."
 				)
 

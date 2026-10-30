@@ -3,6 +3,7 @@ import traceback
 import logging
 from pathlib import Path
 import numpy as np
+import cv2
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject
 
 from src.utils.errors import AppError, ErrorCode, analysis_error
@@ -77,7 +78,6 @@ class CopyMoveWorker(QRunnable):
 	def run(self):
 		try:
 			from PIL import Image, ImageOps
-			import cv2
 
 			stem = Path(self.filepath).stem
 			src = ImageOps.exif_transpose(Image.open(self.filepath)).convert("RGB")

@@ -143,7 +143,7 @@ class CaseLauncher(QDialog):
 		self.txt_desc = QTextEdit()
 		self.txt_desc.setPlaceholderText("Beschreibung…")
 
-		btn_create = QPushButton("Fall erstellen")
+		btn_create = QPushButton("Neuen Fall anlegen")
 		btn_create.clicked.connect(self.create_case)
 		btn_create.setObjectName("btnPrimary")
 

@@ -9,6 +9,7 @@ import exiftool
 
 from src.utils.logging_config import set_log_context, clear_log_context
 from src.utils.errors import AppError, ErrorCode, ErrorSeverity, db_error, file_error, analysis_error, external_tool_error, worker_error
+from src.model.media import DuplicateMediaError
 
 
 logger = logging.getLogger(__name__)
@@ -227,6 +228,11 @@ class AnalysisWorker(QRunnable):
 				"thumb": thumb_path
 			}
 			self.signals.result.emit(result_payload)
+			self.signals.finished.emit()
+
+		except DuplicateMediaError as e:
+			# Erwarteter Zustand (Datei bereits im Fall) – kein Fehler
+			logger.warning("%s Analyse übersprungen", e)
 			self.signals.finished.emit()
 
 		except Exception as e:

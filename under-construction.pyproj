@@ -751,8 +751,14 @@
     <Compile Include="src\workers\ela_analysis.py" />
     <Compile Include="src\workers\ffprobe_worker.py" />
     <Compile Include="src\workers\jpeg_grid_analysis.py" />
+    <Compile Include="src\workers\motion_analysis.py" />
+    <Compile Include="src\workers\noise_estimation.py" />
     <Compile Include="src\workers\resampling_analysis.py" />
+    <Compile Include="src\workers\sharpness_analysis.py" />
     <Compile Include="src\workers\thumbnail_worker.py" />
+    <Compile Include="src\workers\video_stabilizer.py" />
+    <Compile Include="src\workers\vs_metadata_worker.py" />
+    <Compile Include="src\workers\vs_thumbnail_worker.py" />
     <Compile Include="src\workers\__init__.py" />
     <Compile Include="src\__init__.py" />
   </ItemGroup>

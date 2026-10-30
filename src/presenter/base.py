@@ -2,8 +2,10 @@ import json
 import os
 import time
 import logging
+from pathlib import Path
 from PyQt6.QtCore import QThreadPool, Qt
 from ..worker import DbWorker
+from ..workers.vs_thumbnail_worker import VSThumbnailWorker
 
 from src.utils.logging_config import set_log_context, clear_log_context
 

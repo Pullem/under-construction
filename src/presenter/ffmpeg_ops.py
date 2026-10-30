@@ -5,6 +5,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QProcess, QThreadPool
 
 from ..model.base import BASE_DIR
+from ..model.media import DuplicateMediaError
 from ..worker import FfprobeWorker, VSMetadataWorker, ElaWorker, CopyMoveWorker, ResamplingWorker, JpegGridWorker, NoiseEstimatorWorker, SharpnessDetectorWorker, MotionAnalyzerWorker, VideoStabilizerWorker, PostProcessWorker
 from ..utils.gpu_config import get_gpu_config, check_cuda_available
 
@@ -208,6 +209,8 @@ class FfmpegOpsMixin:
 			)
 			self._ffmpeg_log(f"✓ In Datenbank registriert: {os.path.basename(info['filepath'])}")
 			self.refresh_ui_list()
+		except DuplicateMediaError:
+			self._ffmpeg_log(f"– Bereits in Datenbank registriert: {os.path.basename(info['filepath'])}")
 		except Exception as e:
 			self._ffmpeg_log(f"Fehler bei DB-Registrierung: {e}")
 

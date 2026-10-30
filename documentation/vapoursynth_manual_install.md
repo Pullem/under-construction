@@ -1,7 +1,8 @@
 # Manuelle VapourSynth Installation (ohne Admin-Rechte)
 
 ## Problem
-Die automatische Installation über Chocolatey schlägt fehl, da Administrator-Rechte für die systemweite Installation erforderlich sind.
+Die automatische Installation über Chocolatey schlägt fehl, 
+da Administrator-Rechte für die systemweite Installation erforderlich sind.
 
 ## Lösung: Manuelle Installation
 

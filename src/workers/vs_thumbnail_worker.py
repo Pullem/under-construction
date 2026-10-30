@@ -256,6 +256,10 @@ class VSThumbnailWorker(QRunnable):
             self.thumb_dir.mkdir(parents=True, exist_ok=True)
             
             img.thumbnail((self.THUMBNAIL_WIDTH, self.THUMBNAIL_WIDTH), Image.Resampling.LANCZOS)
+            # JPEG speichert nur RGB/L/CMYK/YCbCr – Paletten- (P) und
+            # Alpha-Modi (RGBA, LA, PA …) vor dem Speichern umwandeln
+            if img.mode not in ("RGB", "L", "CMYK", "YCbCr"):
+                img = img.convert("RGB")
             img.save(thumb_path, 'JPEG', quality=85)
             
             if thumb_path.exists():
@@ -265,17 +269,23 @@ class VSThumbnailWorker(QRunnable):
                 
         except Exception as e:
             logger.warning(f"PIL thumbnail failed for {fpath}: {e}")
-            # Fallback to OpenCV
+            # Fallback to OpenCV (imgcodecs, nicht VideoCapture –
+            # OpenCVs FFmpeg-DLL hat u. U. keinen PNG/Bitmap-Decoder)
             try:
                 import cv2
-                cap = cv2.VideoCapture(str(fpath))
-                success, frame = cap.read()
-                cap.release()
-                if success and frame is not None:
+                frame = cv2.imread(str(fpath), cv2.IMREAD_COLOR)
+                if frame is not None:
+                    h, w = frame.shape[:2]
+                    if w > self.THUMBNAIL_WIDTH:
+                        scale = self.THUMBNAIL_WIDTH / w
+                        frame = cv2.resize(
+                            frame,
+                            (self.THUMBNAIL_WIDTH, max(1, int(h * scale))),
+                            interpolation=cv2.INTER_AREA)
                     thumb_name = f"{f_hash}_thumb.jpg"
                     thumb_path = self.thumb_dir / thumb_name
                     self.thumb_dir.mkdir(parents=True, exist_ok=True)
-                    cv2.imwrite(str(thumb_path), frame)
+                    cv2.imwrite(str(thumb_path), frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
                     if thumb_path.exists():
                         f["_thumbnails"] = [{"time_sec": 0, "path": str(thumb_path)}]
                     else:

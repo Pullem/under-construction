@@ -18,6 +18,7 @@ import exiftool
 
 from src.utils.logging_config import set_log_context, clear_log_context
 from src.utils.errors import AppError, ErrorCode, file_error, db_error, external_tool_error, worker_error
+from src.model.media import DuplicateMediaError
 
 
 logger = logging.getLogger(__name__)
@@ -162,13 +163,27 @@ class ImportWorker(QRunnable):
 
 					f_hash = self.model.calculate_hash(str(dest))
 
-					self.model.save_to_db(
-						str(dest),
-						dest.name,
-						f_hash,
-						mi_dict,
-						exif_dict
-					)
+					try:
+						self.model.save_to_db(
+							str(dest),
+							dest.name,
+							f_hash,
+							mi_dict,
+							exif_dict
+						)
+					except DuplicateMediaError as e_dup:
+						# Erwarteter Zustand (gleicher SHA256 bereits im Fall):
+						# frisch kopierte Datei entfernen, Warnung statt Fehler
+						try:
+							dest.unlink()
+						except OSError as e_unlink:
+							logger.warning(
+								"Duplikats-Kopie konnte nicht entfernt werden %s: %s",
+								dest, e_unlink)
+						logger.warning("%s (%s) – Import übersprungen", e_dup, dest.name)
+						duplicate = True
+					else:
+						duplicate = False
 
 					conn = self.model.get_connection()
 					if conn:
@@ -184,7 +199,8 @@ class ImportWorker(QRunnable):
 					self.signals.file_done.emit({
 						"src": str(src_path),
 						"dest": str(dest),
-						"file_name": dest.name
+						"file_name": dest.name,
+						"duplicate": duplicate
 					})
 
 				except Exception as e_file:
@@ -422,7 +438,10 @@ class ImportMediaDialog(QDialog):
 		self.setEnabled(False)
 
 	def _on_file_done(self, info):
-		self.list_widget.addItem(f"Imported: {info['file_name']}")
+		if info.get("duplicate"):
+			self.list_widget.addItem(f"Übersprungen (bereits vorhanden): {info['file_name']}")
+		else:
+			self.list_widget.addItem(f"Imported: {info['file_name']}")
 
 	def _on_error(self, msg):
 		QMessageBox.critical(self, "Import Fehler", msg)

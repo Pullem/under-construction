@@ -1,5 +1,7 @@
 import json
+import hashlib
 import logging
+from pathlib import Path
 from ..worker import DbWorker
 
 
@@ -64,12 +66,43 @@ class FileOpsMixin:
 			self.view.set_active_tab_by_name(target_tab)
 			self.view.tabs.blockSignals(False)
 
-			self.view.set_thumbnail(row['file_path'])
+			self.view.set_thumbnail(self._find_preview_path(row.get('file_path')))
 
 		worker = DbWorker(self.model, _query)
 		worker.signals.result.connect(_on_result)
 		worker.signals.error.connect(lambda e: logger.error("Failed to load file details: %s", e))
 		self.threadpool.start(worker)
+
+	def _find_preview_path(self, file_path):
+		"""Vorhandenes Thumbnail für die Metadaten-Vorschau suchen.
+
+		Bilder werden direkt angezeigt (Originalpfad). Für Videos nutzen
+		wir das vom VSThumbnailWorker erzeugte Thumbnail im Case-Ordner
+		(thumbnails/<hash12>_t<sec>.jpg); PIL kann Videos nicht öffnen.
+		"""
+		if not file_path:
+			return None
+
+		image_exts = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp", ".gif")
+		path = Path(file_path)
+		if path.suffix.lower() in image_exts:
+			return file_path
+
+		case_path = getattr(self.model, "current_case_path", None)
+		if not case_path:
+			return None
+		thumb_dir = Path(case_path) / "thumbnails"
+
+		f_hash = hashlib.sha256(file_path.encode()).hexdigest()[:12]
+		matches = sorted(thumb_dir.glob(f"{f_hash}_t*.jpg"))
+		if matches:
+			return str(matches[0])
+
+		legacy = thumb_dir / f"{path.stem}_thumb.jpg"
+		if legacy.exists():
+			return str(legacy)
+
+		return None
 
 	def _load_file_path_for_ffmpeg(self, file_name):
 		def _query(model):

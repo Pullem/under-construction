@@ -3,7 +3,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 							 QTimeEdit, QCheckBox, QListWidget, QTabWidget,
 							 QComboBox, QSlider, QPlainTextEdit, QProgressBar,
 							 QGridLayout, QSplitter, QSpinBox, QFileDialog,
-							 QListWidgetItem, QSizePolicy)
+							 QListWidgetItem, QSizePolicy,
+							 QTableWidget, QTableWidgetItem, QHeaderView)
 from PyQt6.QtCore import Qt, QDate, QTime, QDateTime, QSize
 from PyQt6.QtGui import QPixmap
 from pathlib import Path
@@ -315,7 +316,7 @@ def build_case_tab(view):
 	layout.addWidget(view.lbl_case_name)
 
 	layout.addSpacing(20)
-	layout.addWidget(QLabel("<b>Fallneuanlage</b>"))
+	layout.addWidget(QLabel("<b>Neuen Fall anlegen</b>"))
 
 	view.txt_case_name = QLineEdit()
 	view.txt_case_name.setPlaceholderText("Fallname")
@@ -354,7 +355,7 @@ def build_case_tab(view):
 	tatzeit_layout.addStretch()
 	layout.addLayout(tatzeit_layout)
 
-	btn_create = QPushButton("Fall erstellen")
+	btn_create = QPushButton("Neuen Fall anlegen")
 	btn_create.clicked.connect(view._on_create_case)
 	btn_create.setObjectName("btnPrimary")
 	layout.addWidget(btn_create)
@@ -362,7 +363,28 @@ def build_case_tab(view):
 	layout.addSpacing(20)
 	layout.addWidget(QLabel("<b>Fallexplorer</b>"))
 
-	view.case_list = QListWidget()
+	view.case_search = QLineEdit()
+	view.case_search.setPlaceholderText("In Fallbeschreibungen suchen...")
+	view.case_search.setClearButtonEnabled(True)
+	view.case_search.textChanged.connect(view.apply_case_filter)
+	layout.addWidget(view.case_search)
+
+	view.case_list = QTableWidget()
+	view.case_list.setColumnCount(4)
+	view.case_list.setHorizontalHeaderLabels(
+		["Tatzeit", "Fallname", "Beschreibung", "Erstelldatum"])
+	view.case_list.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+	view.case_list.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+	view.case_list.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+	view.case_list.verticalHeader().setVisible(False)
+	view.case_list.setSortingEnabled(False)
+
+	header = view.case_list.horizontalHeader()
+	header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+	header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+	header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+	header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+
 	view.case_list.itemDoubleClicked.connect(view._on_case_selected)
 	layout.addWidget(view.case_list, 1)
 

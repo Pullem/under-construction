@@ -77,7 +77,8 @@ choco install ffmpeg
 # Oder von https://ffmpeg.org/download.html
 ```
 
-**Wichtig**: Das Projekt hat bereits `ffmpeg.exe` und `ffprobe.exe` im Root-Ordner. Diese können verwendet werden, aber FFMS2 benötigt die FFmpeg-Bibliotheken (DLLs), nicht nur die Executables.
+**Wichtig**: Das Projekt hat bereits `ffmpeg.exe` und `ffprobe.exe` im Root-Ordner. Diese können verwendet werden, 
+aber FFMS2 benötigt die FFmpeg-Bibliotheken (DLLs), nicht nur die Executables.
 
 ## 5. Verifizierung der Installation
 
