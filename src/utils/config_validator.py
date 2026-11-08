@@ -1,4 +1,5 @@
 import logging
+import os
 import subprocess
 import shutil
 from pathlib import Path
@@ -6,7 +7,7 @@ from configparser import ConfigParser
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
-from src.utils.errors import AppError, ErrorCode, config_error, external_tool_error
+from src.utils.errors import AppError, ErrorCode, ErrorSeverity, config_error, external_tool_error
 
 
 logger = logging.getLogger(__name__)
@@ -251,9 +252,6 @@ class ConfigValidator:
 
 
 # Backward compatibility
-import os
-ErrorSeverity = None  # Will be imported from errors
-
 def validate_startup(model=None, base_dir: Path = None) -> Tuple[bool, List[str]]:
 	"""Legacy function for simple validation."""
 	from src.utils.errors import ErrorSeverity as ES

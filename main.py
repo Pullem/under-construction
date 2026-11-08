@@ -3,13 +3,11 @@ import os
 import faulthandler
 import argparse
 import logging
-from pathlib import Path
 
 faulthandler.enable()
 
 from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox, QLineEdit, QProgressDialog
 
-from configparser import ConfigParser
 from src.model import ForensicModel, BASE_DIR
 from src.view import ForensicView
 from src.presenter import ForensicPresenter
@@ -86,15 +84,8 @@ def run_case_root_setup(model: ForensicModel) -> bool:
 		)
 		return False
 
-	parser = ConfigParser()
-	parser.add_section("settings")
-	parser.set("settings", "case_root", str(Path(folder).resolve()))
-
-	PROJECT_INI.parent.mkdir(parents=True, exist_ok=True)
-	with open(PROJECT_INI, "w") as f:
-		parser.write(f)
-
-	model.load_project_config()
+	# case_root festlegen, danach dessen Unterordner (z. B. Test-Signale) anlegen
+	model.set_case_root(folder)
 
 	QMessageBox.information(
 		None,
@@ -160,8 +151,8 @@ def main() -> None:
 	# 0) MODEL LADEN
 	model = ForensicModel()
 
-	# 1) DB-SETUP (wenn mariadb.ini fehlt oder unvollständig)
-	if not model.db_config.get('password'):
+	# 1) DB-SETUP (wenn mariadb.ini fehlt/unvollständig oder Datenbank weg)
+	if model.db_setup_required():
 		if not run_initial_db_setup(model):
 			return
 
@@ -169,6 +160,10 @@ def main() -> None:
 	if not PROJECT_INI.exists():
 		if not run_case_root_setup(model):
 			return
+
+	# 1c) Unterordner im case_root (erst nach 1b – erst dann ist der Pfad bekannt)
+	if model.proj_config.get("settings", "case_root", fallback="").strip():
+		model.ensure_case_root_folders()
 
 	# 2) VALIDIERUNG (nach Setup, vor GUI)
 	if not validate_startup_config(model, skip_validation=args.skip_validation):

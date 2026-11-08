@@ -40,6 +40,7 @@ def update_config(user, pwd):
 	config.set('database', 'password', pwd)
 	config.set('database', 'host', 'localhost')
 	config.set('database', 'port', '3306')
+	config.set('database', 'database', 'forensic_analyzer')
 	
 	with open('config/mariadb.ini', 'w') as f:
 		config.write(f)

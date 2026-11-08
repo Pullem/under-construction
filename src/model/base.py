@@ -16,6 +16,11 @@ CASE_SUBFOLDERS = (
 	"logs",
 )
 
+# Unterverzeichnisse, die direkt im case_root (project.ini [settings]) liegen
+CASE_ROOT_SUBFOLDERS = (
+	"Test-Signale",
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +87,46 @@ class ConfigDBMixin:
 		case_root = self.proj_config.get("settings", "case_root", fallback="").strip()
 		if case_root:
 			self.proj_config["settings"]["case_root"] = str(Path(case_root).resolve())
+
+	# Keys, die ConfigValidator in [database] verlangt
+	DB_REQUIRED_KEYS = ("host", "user", "password", "port", "database")
+
+	def is_db_config_complete(self) -> bool:
+		"""True, wenn alle Pflicht-Keys in [database] gesetzt sind."""
+		return all(str(self.db_config.get(k, "")).strip() for k in self.DB_REQUIRED_KEYS)
+
+	def db_setup_required(self) -> bool:
+		"""True, wenn das Initial-Setup noch ausgeführt werden muss.
+
+		Löst nur aus, wenn die Konfiguration unvollständig ist oder die
+		konfigurierte Datenbank nicht existiert (z. B. nach einem Reset).
+		Andere Verbindungsprobleme (Server läuft nicht, falsches Passwort)
+		lösen hier nicht aus – die meldet der ConfigValidator als Fehler.
+		"""
+		if not self.is_db_config_complete():
+			return True
+
+		params = dict(self._get_connection_params())
+		db_name = params.pop("database")
+
+		try:
+			conn = mariadb.connect(**params)
+		except mariadb.Error as e:
+			logger.warning("DB-Setup-Prüfung: Verbindung fehlgeschlagen: %s", e)
+			return False
+
+		try:
+			cur = conn.cursor()
+			cur.execute(
+				"SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?",
+				(db_name,)
+			)
+			return cur.fetchone() is None
+		except mariadb.Error as e:
+			logger.warning("DB-Setup-Prüfung: Schema-Abfrage fehlgeschlagen: %s", e)
+			return False
+		finally:
+			conn.close()
 
 	def _get_pool_config(self):
 		"""Extract pool configuration from db_config with defaults."""
@@ -198,9 +243,57 @@ class ConfigDBMixin:
 			(case_path / subfolder).mkdir(parents=True, exist_ok=True)
 		return case_path
 
+	def set_case_root(self, case_root):
+		"""Speichert den Fall-Speicherort in project.ini und legt dessen
+		Standard-Unterverzeichnisse an.
+
+		Reihenfolge ist zwingend: erst case_root festlegen und neu einlesen
+		(Erststart-Setup oder Einstellungen), erst danach Ordner im case_root
+		erzeugen.
+		"""
+		path = Path(case_root).resolve()
+		if "settings" not in self.proj_config:
+			self.proj_config["settings"] = {}
+		self.proj_config["settings"]["case_root"] = str(path)
+		self.save_project_config()
+		self.load_project_config()
+		return self.ensure_case_root_folders(path)
+
+	def ensure_case_root_folders(self, case_root=None):
+		"""Legt die Unterverzeichnisse aus CASE_ROOT_SUBFOLDERS im case_root an.
+
+		Wird erst nach dem Festlegen von case_root aufgerufen. Ein fehlender
+		oder ungültiger case_root wird geloggt und übersprungen – er wird hier
+		nicht stillschweigend angelegt, das meldet der ConfigValidator.
+		"""
+		try:
+			root = Path(case_root).resolve() if case_root else self.get_case_root()
+		except Exception as e:
+			logger.warning("case_root nicht gesetzt/lesbar, Ordner-Anlage übersprungen: %s", e)
+			return []
+
+		if not root.is_dir():
+			logger.warning("case_root ist kein Verzeichnis, Ordner-Anlage übersprungen: %s", root)
+			return []
+
+		created = []
+		for subfolder in CASE_ROOT_SUBFOLDERS:
+			folder = root / subfolder
+			try:
+				folder.mkdir(parents=True, exist_ok=True)
+			except OSError as e:
+				logger.warning("Unterverzeichnis nicht erstellbar (%s): %s", folder, e)
+			else:
+				created.append(str(folder))
+		return created
+
 	def save_db_config(self):
 		config_dir = self.db_config_path.parent
 		config_dir.mkdir(parents=True, exist_ok=True)
+		# Pflicht-Keys immer schreiben, damit config/mariadb.ini für den
+		# Startup-Validator (ConfigValidator) vollständig bleibt.
+		if not str(self.db_config.get("database", "")).strip():
+			self.db_config["database"] = "forensic_analyzer"
 		parser = ConfigParser(interpolation=None)
 		parser.add_section("database")
 		for k, v in self.db_config.items():

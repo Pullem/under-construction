@@ -107,7 +107,7 @@ class CaseMixin:
 		""")
 
 		cur.execute("""
-			CREATE TABLE `suppliers` (
+			CREATE TABLE IF NOT EXISTS `suppliers` (
 			  `id` int(11) NOT NULL AUTO_INCREMENT,
 			  `name` varchar(255) NOT NULL,
 			  `contact` varchar(255) DEFAULT NULL,
@@ -119,7 +119,7 @@ class CaseMixin:
 		""")
 
 		cur.execute("""
-			CREATE TABLE `deliveries` (
+			CREATE TABLE IF NOT EXISTS `deliveries` (
 			  `id` int(11) NOT NULL AUTO_INCREMENT,
 			  `supplier_id` int(11) NOT NULL,
 			  `case_id` int(11) NOT NULL,
@@ -150,6 +150,8 @@ class CaseMixin:
 			"user": "va_user",
 			"password": user_password_to_set,
 			"port": "3306",
+			# Pflicht-Key für config_validator: Datenbankname
+			"database": "forensic_analyzer",
 		}
 		self.root_password = root_password
 		self.save_db_config()

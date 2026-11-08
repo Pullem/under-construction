@@ -62,7 +62,7 @@ class CaseLauncher(QDialog):
 	def _run_required_setups(self) -> bool:
 		"""Run DB and/or case_root setup dialogs. Returns True if all completed."""
 		# DB setup
-		if not self.model.db_config.get('password'):
+		if self.model.db_setup_required():
 			if not self._run_db_setup():
 				return False
 
@@ -104,9 +104,6 @@ class CaseLauncher(QDialog):
 
 	def _run_case_root_setup(self) -> bool:
 		from PyQt6.QtWidgets import QFileDialog, QMessageBox
-		from configparser import ConfigParser
-
-		PROJECT_INI = Path(__file__).resolve().parent.parent.parent / "config" / "project.ini"
 
 		QMessageBox.information(self, "Projekt-Speicherort",
 			"Bitte wählen Sie den Standard-Speicherort für alle Fälle aus.")
@@ -116,15 +113,8 @@ class CaseLauncher(QDialog):
 			QMessageBox.critical(self, "Abbruch", "Es wurde kein Speicherort gewählt.")
 			return False
 
-		parser = ConfigParser()
-		parser.add_section("settings")
-		parser.set("settings", "case_root", str(Path(folder).resolve()))
-
-		PROJECT_INI.parent.mkdir(parents=True, exist_ok=True)
-		with open(PROJECT_INI, "w") as f:
-			parser.write(f)
-
-		self.model.load_project_config()
+		# case_root festlegen, danach dessen Unterordner (z. B. Test-Signale) anlegen
+		self.model.set_case_root(folder)
 		QMessageBox.information(self, "Gespeichert", f"Standard-Speicherort wurde gesetzt:\n{folder}")
 		return True
 

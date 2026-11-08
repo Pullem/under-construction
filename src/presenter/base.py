@@ -212,9 +212,8 @@ class PresenterBase:
 		self._refresh_settings()
 
 	def handle_save_settings(self, case_root):
-		from pathlib import Path
-		self.model.proj_config["settings"]["case_root"] = str(Path(case_root).resolve())
-		self.model.save_project_config()
+		# case_root speichern, danach dessen Unterordner (z. B. Test-Signale) anlegen
+		self.model.set_case_root(case_root)
 		self._refresh_settings()
 		from PyQt6.QtWidgets import QMessageBox
 		QMessageBox.information(self.view, "Gespeichert", "Einstellungen wurden gespeichert.")
