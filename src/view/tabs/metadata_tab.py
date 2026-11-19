@@ -26,6 +26,7 @@ def build_metadata_tab(view):
 	view.thumb_label = QLabel("Vorschau")
 	view.thumb_label.setFixedSize(320, 180)
 	view.thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+	view.thumb_label.setScaledContents(True)
 	view.thumb_label.setStyleSheet(
 		"border: 1px solid #3c3c3c; border-radius: 4px; background-color: #000000; color: #777777;"
 	)
