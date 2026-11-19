@@ -2,7 +2,7 @@ import json
 import hashlib
 import logging
 from pathlib import Path
-from ..worker import DbWorker
+from ..worker import DbWorker, ThumbnailLoadWorker
 
 
 logger = logging.getLogger(__name__)
@@ -66,11 +66,38 @@ class FileOpsMixin:
 			self.view.set_active_tab_by_name(target_tab)
 			self.view.tabs.blockSignals(False)
 
-			self.view.set_thumbnail(self._find_preview_path(row.get('file_path')))
+			# Thumbnail asynchron laden (AGENTS.md Abschnitt 3:
+			# keine Bildverarbeitung im GUI-Thread)
+			preview_path = self._find_preview_path(row.get('file_path'))
+			self._load_thumbnail_async(preview_path)
 
 		worker = DbWorker(self.model, _query)
 		worker.signals.result.connect(_on_result)
 		worker.signals.error.connect(lambda e: logger.error("Failed to load file details: %s", e))
+		self.threadpool.start(worker)
+
+	def _load_thumbnail_async(self, path):
+		"""Thumbnail asynchron über ThumbnailLoadWorker laden.
+
+		Der Worker liefert PNG-Bytes. Das QPixmap wird erst im
+		GUI-Thread (über die View) erstellt, da QPixmap eine GUI-Klasse
+		ist und nicht im Worker-Thread instantiiert werden darf.
+		"""
+		if not path:
+			self.view.set_thumbnail(None)
+			return
+
+		worker = ThumbnailLoadWorker(path)
+
+		def _on_bytes(data):
+			if data is not None:
+				self.view.set_thumbnail_from_bytes(data)
+			else:
+				self.view.set_thumbnail(None)
+
+		worker.signals.result.connect(_on_bytes)
+		worker.signals.error.connect(
+			lambda e: logger.warning("Thumbnail load failed for %s: %s", path, e))
 		self.threadpool.start(worker)
 
 	def _find_preview_path(self, file_path):

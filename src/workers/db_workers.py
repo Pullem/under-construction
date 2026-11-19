@@ -1,5 +1,5 @@
 import os
-import traceback
+import shutil
 import subprocess
 import logging
 from pathlib import Path
@@ -106,17 +106,21 @@ class PostProcessWorker(QRunnable):
 				mi_data = {t.track_type: t.to_data() for t in mi.tracks}
 			except Exception:
 				logger.debug("MediaInfo parse failed for %s", self.filepath)
+
+			# ExifTool: nur starten wenn Binary vorhanden
 			BASE_DIR = Path(__file__).resolve().parent.parent.parent
 			exif_path = str(BASE_DIR / "exiftool.exe")
 			if not os.path.exists(exif_path):
 				exif_path = str(BASE_DIR / "exiftool_files" / "exiftool.pl")
-			try:
-				with exiftool.ExifToolHelper(executable=exif_path) as et:
-					meta = et.get_metadata(str(self.filepath))
-					if meta:
-						exif_data = meta[0]
-			except Exception:
-				logger.debug("ExifTool failed for %s", self.filepath)
+			if os.path.exists(exif_path):
+				try:
+					with exiftool.ExifToolHelper(executable=exif_path) as et:
+						meta = et.get_metadata(str(self.filepath))
+						if meta:
+							exif_data = meta[0]
+				except Exception:
+					logger.debug("ExifTool failed for %s", self.filepath)
+
 			self.signals.result.emit({
 				"hash": hash_val,
 				"metadata": mi_data,
@@ -151,34 +155,37 @@ class AnalysisWorker(QRunnable):
 			mi = MediaInfo.parse(self.filepath)
 			mi_data = {track.track_type: track.to_data() for track in mi.tracks}
 
-			try:
-				result = subprocess.run(
-					["mediainfo", f"--Inform=General;%Recorded_Location%", self.filepath],
-					capture_output=True, text=True, timeout=10
-				)
-				loc = result.stdout.strip()
-				if loc and "General" not in loc:
-					if "General" in mi_data:
-						mi_data["General"]["Recorded_Location"] = loc
-					else:
-						mi_data["General"] = {"Recorded_Location": loc}
-					logger.info("Recorded_Location: %s", loc)
-			except Exception as e:
-				logger.warning("Recorded_Location CLI failed: %s", e)
+			# mediainfo-CLI nur ausführen, wenn im PATH verfügbar
+			# (vermeidet 10s Timeout bei fehlendem Binary)
+			if shutil.which("mediainfo"):
+				try:
+					result = subprocess.run(
+						["mediainfo", f"--Inform=General;%Recorded_Location%", self.filepath],
+						capture_output=True, text=True, timeout=5
+					)
+					loc = result.stdout.strip()
+					if loc and "General" not in loc:
+						if "General" in mi_data:
+							mi_data["General"]["Recorded_Location"] = loc
+						else:
+							mi_data["General"] = {"Recorded_Location": loc}
+						logger.info("Recorded_Location: %s", loc)
+				except Exception as e:
+					logger.warning("Recorded_Location CLI failed: %s", e)
 
-			try:
-				result = subprocess.run(
-					["mediainfo", f"--Inform=General;%File_Creation_Date_Local%", self.filepath],
-					capture_output=True, text=True, timeout=10
-				)
-				fcd = result.stdout.strip()
-				if fcd and "General" not in fcd:
-					if "General" not in mi_data:
-						mi_data["General"] = {}
-					mi_data["General"]["file_creation_date_local"] = fcd
-					logger.info("file_creation_date_local: %s", fcd)
-			except Exception as e:
-				logger.warning("file_creation_date_local CLI failed: %s", e)
+				try:
+					result = subprocess.run(
+						["mediainfo", f"--Inform=General;%File_Creation_Date_Local%", self.filepath],
+						capture_output=True, text=True, timeout=5
+					)
+					fcd = result.stdout.strip()
+					if fcd and "General" not in fcd:
+						if "General" not in mi_data:
+							mi_data["General"] = {}
+						mi_data["General"]["file_creation_date_local"] = fcd
+						logger.info("file_creation_date_local: %s", fcd)
+				except Exception as e:
+					logger.warning("file_creation_date_local CLI failed: %s", e)
 
 			logger.info("MediaInfo parsing completed")
 
@@ -190,25 +197,26 @@ class AnalysisWorker(QRunnable):
 			if not os.path.exists(exif_path):
 				exif_path = str(BASE_DIR / "exiftool_files" / "exiftool.pl")
 
-			try:
-				with exiftool.ExifToolHelper(executable=exif_path) as et:
-					logger.debug("ExifTool process started")
-					metadata = et.get_metadata(self.filepath)
-					if metadata:
-						exif_data = metadata[0]
-					gps_parts = []
-					for tag in ("GPSLatitude", "GPSLongitude", "Composite:GPSLatitude", "Composite:GPSLongitude"):
-						val = exif_data.get(tag)
-						if val:
-							gps_parts.append(str(val).strip())
-					if gps_parts:
-						if "General" not in mi_data:
-							mi_data["General"] = {}
-						mi_data["General"]["EXIF GPS"] = " ".join(gps_parts)
-					logger.info("ExifTool completed (%d tags)", len(exif_data))
-			except Exception as e:
-				logger.warning("ExifTool problem: %s", e)
-				logger.debug("ExifTool path used: %s", exif_path)
+			if os.path.exists(exif_path):
+				try:
+					with exiftool.ExifToolHelper(executable=exif_path) as et:
+						logger.debug("ExifTool process started")
+						metadata = et.get_metadata(self.filepath)
+						if metadata:
+							exif_data = metadata[0]
+						gps_parts = []
+						for tag in ("GPSLatitude", "GPSLongitude", "Composite:GPSLatitude", "Composite:GPSLongitude"):
+							val = exif_data.get(tag)
+							if val:
+								gps_parts.append(str(val).strip())
+						if gps_parts:
+							if "General" not in mi_data:
+								mi_data["General"] = {}
+							mi_data["General"]["EXIF GPS"] = " ".join(gps_parts)
+						logger.info("ExifTool completed (%d tags)", len(exif_data))
+				except Exception as e:
+					logger.warning("ExifTool problem: %s", e)
+					logger.debug("ExifTool path used: %s", exif_path)
 
 			logger.info("Generating thumbnail")
 			thumb_path = self.model.get_thumbnail(self.filepath)

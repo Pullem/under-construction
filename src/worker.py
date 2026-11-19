@@ -35,6 +35,8 @@ from .workers import (
 	ThumbnailWorker,
 	VSThumbnailWorkerSignals,
 	VSThumbnailWorker,
+	ThumbnailLoadWorkerSignals,
+	ThumbnailLoadWorker,
 )
 
 __all__ = [
@@ -71,4 +73,6 @@ __all__ = [
 	"ThumbnailWorker",
 	"VSThumbnailWorkerSignals",
 	"VSThumbnailWorker",
+	"ThumbnailLoadWorkerSignals",
+	"ThumbnailLoadWorker",
 ]

@@ -27,6 +27,11 @@ class MediaListMixin:
 		self.thumb_label.setPixmap(QPixmap())
 
 	def set_thumbnail(self, path):
+		"""Legacy-Methode: synchrones Laden (nur noch für Abwärtskompatibilität).
+
+		Bevorzugt set_thumbnail_pixmap() verwenden, das asynchron
+		vom ThumbnailLoadWorker beliefert wird.
+		"""
 		if path and os.path.exists(path):
 			try:
 				from PIL import Image, ImageOps
@@ -50,3 +55,35 @@ class MediaListMixin:
 		# Kein Thumbnail verfügbar – Platzhalter zurücksetzen
 		self.thumb_label.setText("Vorschau")
 		self.thumb_label.setPixmap(QPixmap())
+
+	def set_thumbnail_pixmap(self, pix):
+		"""Setzt ein fertig geladenes QPixmap als Vorschau.
+
+		Wird vom ThumbnailLoadWorker (Hintergrund-Thread) über
+		ein Signal aufgerufen – kein Dateizugriff im GUI-Thread.
+		"""
+		if pix is not None and not pix.isNull():
+			self.thumb_label.setPixmap(pix)
+		else:
+			self.thumb_label.setText("Vorschau")
+			self.thumb_label.setPixmap(QPixmap())
+
+	def set_thumbnail_from_bytes(self, data):
+		"""Erstellt ein QPixmap aus PNG-Bytes und setzt es als Vorschau.
+
+		Wird vom ThumbnailLoadWorker über Signals aufgerufen.
+		Das QPixmap wird hier im GUI-Thread erstellt (erlaubt),
+		die Bildverarbeitung (PIL/OpenCV) erfolgt im Worker-Thread.
+		"""
+		from PyQt6.QtGui import QPixmap
+		if data is None:
+			self.thumb_label.setText("Vorschau")
+			self.thumb_label.setPixmap(QPixmap())
+			return
+
+		pix = QPixmap()
+		if pix.loadFromData(data):
+			self.thumb_label.setPixmap(pix)
+		else:
+			self.thumb_label.setText("Vorschau")
+			self.thumb_label.setPixmap(QPixmap())

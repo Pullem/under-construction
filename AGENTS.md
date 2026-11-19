@@ -13,6 +13,8 @@ Technologien:
 * PyQt6
 * MariaDB
 * FFmpeg
+* VapourSynth
+* CUDA
 * Git / GitHub
 * MVP-Architektur
 

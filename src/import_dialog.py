@@ -80,6 +80,16 @@ class ImportWorker(QRunnable):
 		self.delivery_info = delivery_info
 		self.signals = ImportSignals()
 
+	def _exiftool_extract(self, src_path, et):
+		"""Extrahiert EXIF-Metadaten mit dem laufenden ExifToolHelper."""
+		try:
+			metadata = et.get_metadata(str(src_path))
+			if metadata:
+				return metadata[0]
+		except Exception as e:
+			logger.warning("ExifTool error for %s: %s", src_path, e)
+		return {}
+
 	def run(self):
 		set_log_context(case_id=self.model.current_case_id, operation="import")
 		try:
@@ -108,108 +118,106 @@ class ImportWorker(QRunnable):
 
 			total = len(self.files)
 
-			for idx, src in enumerate(self.files, start=1):
-				try:
-					src_path = Path(src)
-					dest_dir = self.dest_folder
-					dest_dir.mkdir(parents=True, exist_ok=True)
+			# ExifTool-Kontext EINMAL für alle Dateien öffnen
+			# (AGENTS.md Abschnitt 18: Worker-Muster beibehalten,
+			# aber Effizienz durch gebündelten Prozessstart)
+			BASE_DIR = Path(__file__).resolve().parent.parent
+			exif_path = str(BASE_DIR / "exiftool.exe")
+			if not os.path.exists(exif_path):
+				exif_path = str(BASE_DIR / "exiftool_files" / "exiftool.pl")
 
-					dest = dest_dir / src_path.name
-					if dest.exists():
-						dest = dest_dir / f"{src_path.stem}_{idx}{src_path.suffix}"
+			et = None
+			try:
+				et = exiftool.ExifToolHelper(executable=exif_path)
+				et.run()
+			except Exception as e:
+				logger.warning("ExifTool konnte nicht gestartet werden: %s", e)
+				et = None
 
-					set_log_context(file=src_path.name, operation="import_file")
-					logger.info("Extracting metadata from source: %s", src_path)
-					mi_dict = {
-						track.track_type or "Other": track.to_data()
-						for track in MediaInfo.parse(str(src_path)).tracks
-					}
-					if not mi_dict:
-						mi_dict = {"General": {"source_path": str(src_path)}}
-
+			try:
+				for idx, src in enumerate(self.files, start=1):
 					try:
-						import subprocess
-						for fmt, key in (
-							("General;%Recorded_Location%", "Recorded_Location"),
-							("General;%File_Creation_Date_Local%", "file_creation_date_local"),
-						):
-							r = subprocess.run(
-								["mediainfo", f"--Inform={fmt}", str(src_path)],
-								capture_output=True, text=True, timeout=10
-							)
-							val = r.stdout.strip()
-							if val and "General" not in val:
-								if "General" not in mi_dict:
-									mi_dict["General"] = {}
-								mi_dict["General"][key] = val
-					except Exception as e:
-						logger.warning("CLI fallback failed: %s", e)
+						src_path = Path(src)
+						dest_dir = self.dest_folder
+						dest_dir.mkdir(parents=True, exist_ok=True)
 
-					exif_dict = {}
-					try:
-						BASE_DIR = Path(__file__).resolve().parent.parent
-						exif_path = str(BASE_DIR / "exiftool.exe")
-						if not os.path.exists(exif_path):
-							exif_path = str(BASE_DIR / "exiftool_files" / "exiftool.pl")
-						with exiftool.ExifToolHelper(executable=exif_path) as et:
-							metadata = et.get_metadata(str(src_path))
-							if metadata:
-								exif_dict = metadata[0]
-					except Exception as e:
-						logger.warning("ExifTool error: %s", e)
+						dest = dest_dir / src_path.name
+						if dest.exists():
+							dest = dest_dir / f"{src_path.stem}_{idx}{src_path.suffix}"
 
-					logger.info("Copying to destination: %s", dest)
-					shutil.copy2(src_path, dest)
+						set_log_context(file=src_path.name, operation="import_file")
+						logger.info("Extracting metadata from source: %s", src_path)
+						mi_dict = {
+							track.track_type or "Other": track.to_data()
+							for track in MediaInfo.parse(str(src_path)).tracks
+						}
+						if not mi_dict:
+							mi_dict = {"General": {"source_path": str(src_path)}}
 
-					f_hash = self.model.calculate_hash(str(dest))
+						# ExifTool: gebündelter Aufruf statt pro Datei
+						exif_dict = {}
+						if et is not None:
+							exif_dict = self._exiftool_extract(src_path, et)
 
-					try:
-						self.model.save_to_db(
-							str(dest),
-							dest.name,
-							f_hash,
-							mi_dict,
-							exif_dict
-						)
-					except DuplicateMediaError as e_dup:
-						# Erwarteter Zustand (gleicher SHA256 bereits im Fall):
-						# frisch kopierte Datei entfernen, Warnung statt Fehler
+						logger.info("Copying to destination: %s", dest)
+						shutil.copy2(src_path, dest)
+
+						f_hash = self.model.calculate_hash(str(dest))
+
 						try:
-							dest.unlink()
-						except OSError as e_unlink:
-							logger.warning(
-								"Duplikats-Kopie konnte nicht entfernt werden %s: %s",
-								dest, e_unlink)
-						logger.warning("%s (%s) – Import übersprungen", e_dup, dest.name)
-						duplicate = True
-					else:
-						duplicate = False
+							self.model.save_to_db(
+								str(dest),
+								dest.name,
+								f_hash,
+								mi_dict,
+								exif_dict
+							)
+						except DuplicateMediaError as e_dup:
+							# Erwarteter Zustand (gleicher SHA256 bereits im Fall):
+							# frisch kopierte Datei entfernen, Warnung statt Fehler
+							try:
+								dest.unlink()
+							except OSError as e_unlink:
+								logger.warning(
+									"Duplikats-Kopie konnte nicht entfernt werden %s: %s",
+									dest, e_unlink)
+							logger.warning("%s (%s) – Import übersprungen", e_dup, dest.name)
+							duplicate = True
+						else:
+							duplicate = False
 
-					conn = self.model.get_connection()
-					if conn:
-						cur = conn.cursor(dictionary=True)
-						cur.execute("SELECT id FROM media_files WHERE sha256_hash = ?", (f_hash,))
-						row = cur.fetchone()
-						conn.close()
+						conn = self.model.get_connection()
+						if conn:
+							cur = conn.cursor(dictionary=True)
+							cur.execute("SELECT id FROM media_files WHERE sha256_hash = ?", (f_hash,))
+							row = cur.fetchone()
+							conn.close()
 
-						if row:
-							media_id = row["id"]
-							self.model.link_media_to_delivery(media_id, delivery_id)
+							if row:
+								media_id = row["id"]
+								self.model.link_media_to_delivery(media_id, delivery_id)
 
-					self.signals.file_done.emit({
-						"src": str(src_path),
-						"dest": str(dest),
-						"file_name": dest.name,
-						"duplicate": duplicate
-					})
+						self.signals.file_done.emit({
+							"src": str(src_path),
+							"dest": str(dest),
+							"file_name": dest.name,
+							"duplicate": duplicate
+						})
 
-				except Exception as e_file:
-					err = AppError.from_exception(e_file, code=ErrorCode.IMPORT_FAILED,
-												  context={"src": str(src_path), "dest": str(dest)})
-					self.signals.error.emit(err.to_json())
+					except Exception as e_file:
+						err = AppError.from_exception(e_file, code=ErrorCode.IMPORT_FAILED,
+													  context={"src": str(src_path), "dest": str(dest)})
+						self.signals.error.emit(err.to_json())
 
-				percent = int((idx / total) * 100)
-				self.signals.progress.emit(percent)
+					percent = int((idx / total) * 100)
+					self.signals.progress.emit(percent)
+
+			finally:
+				if et is not None:
+					try:
+						et.terminate()
+					except Exception:
+						pass
 
 			self.signals.finished.emit()
 

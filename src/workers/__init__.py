@@ -74,6 +74,11 @@ from .vs_thumbnail_worker import (
 	VSThumbnailWorker,
 )
 
+from .thumbnail_load_worker import (
+	ThumbnailLoadWorkerSignals,
+	ThumbnailLoadWorker,
+)
+
 __all__ = [
 	# db_workers
 	"WorkerSignals",
@@ -121,4 +126,7 @@ __all__ = [
 	# vs_thumbnail_worker
 	"VSThumbnailWorkerSignals",
 	"VSThumbnailWorker",
+	# thumbnail_load_worker
+	"ThumbnailLoadWorkerSignals",
+	"ThumbnailLoadWorker",
 ]
