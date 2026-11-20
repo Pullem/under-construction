@@ -1,10 +1,9 @@
-"""Hauptfenster: Signale, Konstruktor und Tab-Setup."""
+"""Hauptfenster: Signale, Konstruktor und Baum-Navigation."""
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout,
-							 QStackedWidget, QTabBar)
-from PyQt6.QtCore import pyqtSignal
+							 QStackedWidget, QTreeWidget, QTreeWidgetItem)
+from PyQt6.QtCore import pyqtSignal, Qt
 
-from .flat_tab_bar import FlatTabBar
 from .tabs import (build_case_tab, build_import_tab, build_metadata_tab,
 	build_videos_tab, build_bilder_tab, build_settings_tab,
 	build_hex_tab, build_analysis_tab, build_placeholder_tab)
@@ -48,30 +47,98 @@ class MainWindowMixin(DarkStyleMixin, FFmpegControlsMixin, SettingsMixin,
 		main_layout.setContentsMargins(0, 0, 0, 0)
 		main_layout.setSpacing(0)
 
-		# --- LINKS: Navigations-Tabbar ---
-		self.nav_bar = FlatTabBar()
-		self.nav_bar.setShape(QTabBar.Shape.RoundedWest)
-		self.nav_bar.setFixedWidth(200)
+		# --- LINKS: Navigations-Baum (ersetzt FlatTabBar) ---
+		self.nav_tree = QTreeWidget()
+		self.nav_tree.setHeaderHidden(True)
+		self.nav_tree.setFixedWidth(200)
+		self.nav_tree.setStyleSheet(
+			"QTreeWidget { background-color: #1a1a1a; border: none; }"
+			"QTreeWidget::item { color: #9a9a9a; padding: 8px; height: 32px; }"
+			"QTreeWidget::item:selected { color: #ffffff; background-color: #252526; }"
+			"QTreeWidget::item:hover { background-color: #242424; }"
+			"QTreeWidget::branch { background: transparent; }"
+		)
 
 		# --- MITTE: Inhaltsbereich ---
 		self.content_stack = QStackedWidget()
 
-		# Tabs + Inhalt bauen
-		build_case_tab(self)
-		build_import_tab(self)
-		build_metadata_tab(self)
-		build_videos_tab(self)
-		build_bilder_tab(self)
-		build_hex_tab(self)
-		build_analysis_tab(self)
-		build_placeholder_tab(self, "Export")
-		build_settings_tab(self)
+		# Tabs + Inhalt bauen (reihenfolge bestimmt Stack-Index)
+		build_case_tab(self)          # 0
+		build_import_tab(self)        # 1
+		build_metadata_tab(self)      # 2
+		build_videos_tab(self)        # 3
+		build_bilder_tab(self)        # 4 (Analysen), 5 (Processing)
+		build_hex_tab(self)           # 6
+		build_analysis_tab(self)      # 7
+		build_placeholder_tab(self, "Export")  # 8
+		build_settings_tab(self)      # 9
 
-		# Navigation verknüpfen
-		self.nav_bar.currentChanged.connect(self.content_stack.setCurrentIndex)
+		# Baum-Navigation aufbauen
+		self._build_nav_tree()
+
+		# Klick im Baum wechselt Stack-Seite
+		self.nav_tree.itemClicked.connect(self._on_tree_item_clicked)
 
 		self._refresh_timezone()
 		self._update_gpu_status()
 
-		main_layout.addWidget(self.nav_bar)
+		main_layout.addWidget(self.nav_tree)
 		main_layout.addWidget(self.content_stack, 1)
+
+	def _build_nav_tree(self):
+		"""Baut die Baum-Navigation mit expandierbarer 'Bilder'-Kategorie."""
+		# Jeder Eintrag ist entweder:
+		#   (name, stack_idx) – einfacher Eintrag
+		#   {"name": ..., "expanded": bool, "children": [(name, stack_idx), ...]} – Kategorie
+		nav_items = [
+			("Fallübersicht", 0),
+			("Import", 1),
+			("Metadaten", 2),
+			{"name": "Bilder", "expanded": True,
+			 "children": [("Analysen", 4), ("Processing", 5)]},
+			("Videos", 3),
+			("Hex-Viewer", 6),
+			("Auswertung", 7),
+			("Export", 8),
+			("Einstellungen", 9),
+		]
+
+		for entry in nav_items:
+			if isinstance(entry, tuple):
+				name, stack_idx = entry
+				item = QTreeWidgetItem([name])
+				item.setData(0, Qt.ItemDataRole.UserRole, stack_idx)
+				self.nav_tree.addTopLevelItem(item)
+			elif isinstance(entry, dict):
+				cat_item = QTreeWidgetItem([entry["name"]])
+				cat_item.setData(0, Qt.ItemDataRole.UserRole, -1)
+				cat_item.setExpanded(entry.get("expanded", True))
+				self.nav_tree.addTopLevelItem(cat_item)
+				for child_name, child_idx in entry.get("children", []):
+					child = QTreeWidgetItem([child_name])
+					child.setData(0, Qt.ItemDataRole.UserRole, child_idx)
+					cat_item.addChild(child)
+
+		# Ersten Eintrag auswählen (Fallübersicht)
+		self.nav_tree.setCurrentItem(
+			self.nav_tree.topLevelItem(0))
+		self.content_stack.setCurrentIndex(0)
+
+	def _on_tree_item_clicked(self, item, column):
+		"""Wechselt zur Stack-Seite des geklickten Tree-Items."""
+		stack_idx = item.data(0, Qt.ItemDataRole.UserRole)
+		if stack_idx is not None and stack_idx >= 0:
+			self.content_stack.setCurrentIndex(stack_idx)
+			# Merke welchen Bilder-Subtab wir haben (für active_media_prefix)
+			if stack_idx in (4, 5):
+				self._current_bilder_subtab = stack_idx - 4
+
+	def set_active_bilder_subtab(self, subtab_index):
+		"""Wird von Presenter aufgerufen, um den aktiven Bilder-Subtab zu markieren."""
+		self._current_bilder_subtab = subtab_index
+		# Baum-Selektion aktualisieren
+		bilder_item = self.nav_tree.topLevelItem(3)  # "Bilder" ist 4. Top-Level (zwischen Metadaten und Videos)
+		if bilder_item:
+			child = bilder_item.child(subtab_index)
+			if child:
+				self.nav_tree.setCurrentItem(child)

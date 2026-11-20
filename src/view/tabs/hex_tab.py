@@ -80,5 +80,4 @@ def build_hex_tab(view):
 	view.hex_status.setStyleSheet("color: #9a9a9a;")
 	layout.addWidget(view.hex_status)
 
-	view.nav_bar.addTab("Hex-Viewer")
 	view.content_stack.addWidget(widget)

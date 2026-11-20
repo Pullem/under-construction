@@ -20,5 +20,4 @@ def build_import_tab(view):
 
 	layout.addStretch()
 
-	view.nav_bar.addTab("Import")
 	view.content_stack.addWidget(widget)

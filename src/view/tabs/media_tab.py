@@ -3,7 +3,7 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 							 QPushButton, QGridLayout, QComboBox, QTimeEdit,
 							 QLineEdit, QPlainTextEdit, QSplitter, QTabWidget,
-							 QProgressBar, QSizePolicy)
+							 QProgressBar, QSizePolicy, QGroupBox)
 from PyQt6.QtCore import Qt, QTime
 
 from .widgets import AnalysisTabWidget
@@ -138,8 +138,6 @@ def build_media_tab(view, name, prefix, is_video):
 	left_layout.setContentsMargins(0, 0, 4, 0)
 	if is_video:
 		left_layout.addWidget(QLabel("<b>Analysen</b>"))
-	else:
-		layout.addWidget(QLabel("<b>Analysen</b>"))
 
 	if is_video:
 		analyses = [
@@ -167,6 +165,11 @@ def build_media_tab(view, name, prefix, is_video):
 			("jpeggrid", "JPEG Grid"),
 		]
 
+	# Aufklappbare Gruppe "Analysen" (nur Bilder; Videos nutzen direktes Layout)
+	if not is_video:
+		analyses_group = QGroupBox("Analysen")
+		analyses_inner = QVBoxLayout(analyses_group)
+
 	analysis_toolbar = QHBoxLayout()
 	for mode, title in analyses:
 		btn = QPushButton(title)
@@ -187,7 +190,8 @@ def build_media_tab(view, name, prefix, is_video):
 		analysis_toolbar.addWidget(sens)
 
 	if not is_video:
-		layout.addLayout(analysis_toolbar)
+		analyses_inner.addLayout(analysis_toolbar)
+		left_layout.addWidget(analyses_group)
 	else:
 		left_layout.addLayout(analysis_toolbar)
 
@@ -205,8 +209,13 @@ def build_media_tab(view, name, prefix, is_video):
 		btn.clicked.connect(lambda checked, m=mode: view._on_plugin_btn_clicked(m))
 		setattr(view, f"{prefix}_pbtn_{mode}", btn)
 		plugin_toolbar.addWidget(btn, 1 if not is_video else 0)
+
+	# Aufklappbare Gruppe "Processing" (nur Bilder)
 	if not is_video:
-		layout.addLayout(plugin_toolbar)
+		processing_group = QGroupBox("Processing")
+		processing_inner = QVBoxLayout(processing_group)
+		processing_inner.addLayout(plugin_toolbar)
+		left_layout.addWidget(processing_group)
 	else:
 		left_layout.addLayout(plugin_toolbar)
 
@@ -309,7 +318,6 @@ def build_media_tab(view, name, prefix, is_video):
 
 	layout.addWidget(splitter, 1)
 
-	view.nav_bar.addTab(name)
 	view.content_stack.addWidget(widget)
 
 
@@ -317,14 +325,163 @@ def build_videos_tab(view):
 	build_media_tab(view, "Videos", "video", True)
 
 
+def build_bilder_analyses_tab(view):
+	"""Baut den Bilder-Analysen-Tab (unter Kategorie 'Bilder' im Baum)."""
+	widget = QWidget()
+	layout = QVBoxLayout(widget)
+
+	layout.addWidget(QLabel("<b>Bilder – Analysen</b>"))
+	layout.addSpacing(8)
+
+	# Dateiauswahl
+	file_layout = QHBoxLayout()
+	file_layout.addWidget(QLabel("Datei:"))
+	file_label = QLabel("–")
+	file_label.setStyleSheet("color: #b0b0b0;")
+	setattr(view, "bild_file_label", file_label)
+	file_layout.addWidget(file_label, 1)
+	setattr(view, "bild_input_path", "")
+	btn_browse = QPushButton("Durchsuchen")
+	btn_browse.clicked.connect(view._on_ffmpeg_browse)
+	setattr(view, "bild_btn_browse", btn_browse)
+	file_layout.addWidget(btn_browse)
+	layout.addLayout(file_layout)
+
+	# Aufklappbare Gruppe "Analysen"
+	analyses_group = QGroupBox("Analysen")
+	analyses_inner = QVBoxLayout(analyses_group)
+
+	analyses = [
+		("streams", "Stream-Übersicht"),
+		("quickcheck", "Quick-Check"),
+		("ela", "ELA-Analyse"),
+		("copymove", "Copy-Move"),
+		("resample", "Resampling/Rauschen"),
+		("jpeggrid", "JPEG Grid"),
+	]
+	analysis_toolbar = QHBoxLayout()
+	for mode, title in analyses:
+		btn = QPushButton(title)
+		btn.clicked.connect(lambda checked, m=mode: view._on_ffprobe_analyse(m))
+		btn.setObjectName("btnAnalysis")
+		setattr(view, f"bild_btn_{mode}", btn)
+		analysis_toolbar.addWidget(btn, 1)
+
+	analysis_toolbar.addStretch()
+	analysis_toolbar.addWidget(QLabel("Empfindlichkeit:"))
+	sens = QComboBox()
+	sens.addItem("Standard", "standard")
+	sens.addItem("Empfindlich", "empfindlich")
+	sens.addItem("Sehr empfindlich", "sehr_empfindlich")
+	sens.currentIndexChanged.connect(view._on_sensitivity_changed)
+	setattr(view, "bild_sensitivity", sens)
+	analysis_toolbar.addWidget(sens)
+
+	analyses_inner.addLayout(analysis_toolbar)
+	layout.addWidget(analyses_group)
+
+	# Generisches Ergebnis-Feld für ffprobe-Analyse (Stream-Übersicht, Quick-Check, …)
+	bild_result = QPlainTextEdit()
+	bild_result.setReadOnly(True)
+	bild_result.setStyleSheet(
+		"background-color: #0d0d0d; color: #4ec94e; font-family: Consolas; font-size: 9pt; "
+		"border: 1px solid #333333; border-radius: 4px; padding: 6px; "
+		"selection-background-color: #1e4d2b; selection-color: #e8ffe8;"
+	)
+	setattr(view, "bild_result", bild_result)
+	layout.addWidget(bild_result, 1)
+
+	# Ergebnis-Tabs (ELA, Copy-Move, Resampling, JPEG Grid)
+	result_tabs = QTabWidget()
+	result_tabs.setDocumentMode(True)
+
+	tab_modes = [
+		("ela", "ELA"),
+		("copymove", "Copy-Move"),
+		("resample", "Resampling/Rauschen"),
+		("jpeggrid", "JPEG Grid"),
+	]
+	for tab_mode, tab_title in tab_modes:
+		tab_w = AnalysisTabWidget(tab_mode)
+		tab_w.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+		tab_w.setMinimumSize(0, 0)
+		setattr(view, f"bild_tab_{tab_mode}", tab_w)
+		setattr(view, f"bild_tab_{tab_mode}_error_map", tab_w.map_widget)
+		setattr(view, f"bild_tab_{tab_mode}_histogram", tab_w.hist_widget)
+		result_tabs.addTab(tab_w, tab_title)
+
+	setattr(view, "bild_result_tabs", result_tabs)
+	result_tabs.tabBar().setVisible(False)
+	layout.addWidget(result_tabs, 1)
+
+	view.content_stack.addWidget(widget)
+
+
+def build_bilder_processing_tab(view):
+	"""Baut den Bilder-Processing-Tab (unter Kategorie 'Bilder' im Baum)."""
+	widget = QWidget()
+	layout = QVBoxLayout(widget)
+
+	layout.addWidget(QLabel("<b>Bilder – Processing</b>"))
+	layout.addSpacing(8)
+
+	# Dateiauswahl
+	file_layout = QHBoxLayout()
+	file_layout.addWidget(QLabel("Datei:"))
+	file_label = QLabel("–")
+	file_label.setStyleSheet("color: #b0b0b0;")
+	setattr(view, "bild_file_label", file_label)
+	file_layout.addWidget(file_label, 1)
+	setattr(view, "bild_input_path", "")
+	btn_browse = QPushButton("Durchsuchen")
+	btn_browse.clicked.connect(view._on_ffmpeg_browse)
+	setattr(view, "bild_btn_browse", btn_browse)
+	file_layout.addWidget(btn_browse)
+	layout.addLayout(file_layout)
+
+	# Aufklappbare Gruppe "Processing"
+	processing_group = QGroupBox("Processing")
+	processing_inner = QVBoxLayout(processing_group)
+
+	plugin_toolbar = QHBoxLayout()
+	plugin_toolbar.setSpacing(4)
+	plugin_items = [("histogramm", "Histogramm/Gamma")] + \
+		[(f"b{i}", f"Dummy B{i}") for i in range(2, 9)]
+	for mode, title in plugin_items:
+		btn = QPushButton(title)
+		btn.setStyleSheet("border: 1px solid #4a4a4a;")
+		btn.clicked.connect(lambda checked, m=mode: view._on_plugin_btn_clicked(m))
+		setattr(view, f"bild_pbtn_{mode}", btn)
+		plugin_toolbar.addWidget(btn, 1)
+
+	processing_inner.addLayout(plugin_toolbar)
+	layout.addWidget(processing_group)
+
+	# Ergebnis-Anzeige (PlainTextEdit)
+	analysis_result = QPlainTextEdit()
+	analysis_result.setReadOnly(True)
+	analysis_result.setStyleSheet(
+		"background-color: #0d0d0d; color: #4ec94e; font-family: Consolas; font-size: 9pt; "
+		"border: 1px solid #333333; border-radius: 4px; padding: 6px; "
+		"selection-background-color: #1e4d2b; selection-color: #e8ffe8;"
+	)
+	setattr(view, "bild_result_proc", analysis_result)
+	layout.addWidget(analysis_result, 1)
+
+	view.content_stack.addWidget(widget)
+
+
 def build_bilder_tab(view):
-	build_media_tab(view, "Bilder", "bild", False)
+	"""Baut beide Bilder-Subtabs (Analysen + Processing) für die Baum-Navigation."""
+	build_bilder_analyses_tab(view)
+	build_bilder_processing_tab(view)
 
 
 def active_media_prefix(view):
-	idx = view.nav_bar.currentIndex()
-	if idx == 3:   # Videos
+	"""Gibt 'video' oder 'bild' zurück, je nachdem welcher Stack aktiv ist."""
+	idx = view.content_stack.currentIndex()
+	if idx == 3:
 		return "video"
-	elif idx == 4: # Bilder
+	elif idx in (4, 5):
 		return "bild"
 	return "video"

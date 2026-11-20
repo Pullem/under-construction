@@ -92,5 +92,4 @@ def build_settings_tab(view):
 
 	layout.addStretch()
 
-	view.nav_bar.addTab("Einstellungen")
 	view.content_stack.addWidget(widget)

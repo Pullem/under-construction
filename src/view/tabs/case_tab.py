@@ -93,5 +93,4 @@ def build_case_tab(view):
 	btn_open.clicked.connect(view._on_case_selected)
 	layout.addWidget(btn_open)
 
-	view.nav_bar.addTab("Fallübersicht")
 	view.content_stack.addWidget(widget)

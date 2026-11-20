@@ -22,7 +22,13 @@ class FFmpegControlsMixin:
 			self._open_enhance_window()
 		else:
 			prefix = active_media_prefix(self)
-			result = getattr(self, f"{prefix}_result", None)
+			# Richtiges Ergebnis-Feld basierend auf aktuellem Stack wählen
+			stack_idx = self.content_stack.currentIndex()
+			if stack_idx == 5:   # Bilder/Processing
+				result_attr = "bild_result_proc"
+			else:
+				result_attr = f"{prefix}_result"
+			result = getattr(self, result_attr, None)
 			if result:
 				btn = getattr(self, f"{prefix}_pbtn_{mode}", None)
 				name = btn.text() if btn else mode
@@ -200,7 +206,15 @@ class FFmpegControlsMixin:
 		if not path:
 			QMessageBox.warning(self, "Keine Datei", "Bitte zuerst eine Datei auswählen.")
 			return
-		getattr(self, f"{prefix}_result").clear()
+		# Richtiges Ergebnis-Feld basierend auf aktuellem Stack wählen
+		stack_idx = self.content_stack.currentIndex()
+		if stack_idx == 4:   # Bilder/Analysen
+			result_attr = "bild_result"
+		elif stack_idx == 5: # Bilder/Processing
+			result_attr = "bild_result_proc"
+		else:
+			result_attr = f"{prefix}_result"
+		getattr(self, result_attr).clear()
 		self.ffprobe_analyse_requested.emit(path, mode, prefix)
 
 	def _on_sensitivity_changed(self):

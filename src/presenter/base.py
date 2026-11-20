@@ -40,7 +40,7 @@ class PresenterBase:
 		self.view.search_changed.connect(self.handle_search)
 		self.view.file_selected.connect(self.load_file_details)
 		self.view.tabs.currentChanged.connect(self.track_tab_change)
-		self.view.nav_bar.currentChanged.connect(self.handle_nav_tab_change)
+		self.view.nav_tree.itemClicked.connect(self._on_nav_tree_item_clicked)
 
 		self.view.file_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 		self.view.file_list.customContextMenuRequested.connect(self.show_context_menu)
@@ -122,7 +122,15 @@ class PresenterBase:
 			return value
 		return json.loads(value)
 
+	def _on_nav_tree_item_clicked(self, item, column):
+		"""Wird geklickt, wenn ein Eintrag im Navigations-Baum angeklickt wird."""
+		stack_idx = item.data(0, Qt.ItemDataRole.UserRole)
+		if stack_idx is not None and stack_idx >= 0:
+			self.handle_nav_tab_change(stack_idx)
+
 	def handle_nav_tab_change(self, index):
+		# Immer zum gewählten Stack-Index wechseln
+		self.view.content_stack.setCurrentIndex(index)
 		if not self.case_path and index not in (0, 7):
 			from PyQt6.QtWidgets import QMessageBox
 			QMessageBox.warning(
@@ -130,10 +138,6 @@ class PresenterBase:
 				"Kein Fall aktiv",
 				"Bitte wählen Sie zuerst einen Fall aus oder legen Sie einen neuen Fall an (Tab „Fallübersicht“)."
 			)
-			self.view.nav_bar.blockSignals(True)
-			self.view.nav_bar.setCurrentIndex(0)
-			self.view.nav_bar.blockSignals(False)
-			self.view.content_stack.setCurrentIndex(0)
 
 	def track_tab_change(self, index):
 		name = self.view.get_active_tab_name()

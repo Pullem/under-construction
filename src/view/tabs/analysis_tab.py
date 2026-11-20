@@ -48,7 +48,6 @@ def build_analysis_tab(view):
 	view.timeline_widget = TimelineWidget()
 	layout.addWidget(view.timeline_widget, 1)
 
-	view.nav_bar.addTab("Auswertung")
 	view.content_stack.addWidget(widget)
 
 	view._is_analysis_built = True
@@ -60,5 +59,4 @@ def build_placeholder_tab(view, title):
 	label = QLabel(f"{title}\n\nNoch nicht implementiert")
 	label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 	layout.addWidget(label)
-	view.nav_bar.addTab(title)
 	view.content_stack.addWidget(widget)

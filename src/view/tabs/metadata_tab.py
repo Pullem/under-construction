@@ -51,5 +51,4 @@ def build_metadata_tab(view):
 		lambda item: view.file_selected.emit(item.text())
 	)
 
-	view.nav_bar.addTab("Metadaten")
 	view.content_stack.addWidget(widget)

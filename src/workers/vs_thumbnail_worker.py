@@ -9,6 +9,7 @@ import hashlib
 from pathlib import Path
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject
 
+from src.model.base import BASE_DIR
 from src.utils.errors import AppError, ErrorCode, worker_error
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ class VSThumbnailWorker(QRunnable):
         self.thumb_dir = Path(thumb_dir)
         self.vs_plugin_path = vs_plugin_path or os.environ.get(
             'VAPOURSYNTH_PLUGIN_PATH',
-            str(Path(__file__).parent.parent.parent / "vapoursynth_plugins" / "bestsource.dll")
+            str(BASE_DIR / "vapoursynth_plugins" / "bestsource.dll")
         )
         self.signals = VSThumbnailWorkerSignals()
         self._core = None
