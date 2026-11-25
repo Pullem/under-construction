@@ -167,7 +167,7 @@ class CallbacksMixin:
 	def _on_ffprobe_error(self, mode, error_msg):
 		self._ffmpeg_log_probe(f"Fehler bei {mode}: {error_msg}")
 
-	def _format_metadata_for_analyst(self, metadata, mode):
+	def _format_metadata_for_analyst(self, metadata, mode, filepath=None):
 		"""Format metadata into a clear, human-readable view for forensic analysts.
 
 		Transforms the technical VapourSynth/ffprobe metadata into a scannable
@@ -176,13 +176,24 @@ class CallbacksMixin:
 		lines = []
 		lines.append("=" * 60)
 		lines.append(f"VAPOURSYNTH META-DATA ANALYSE")
-		lines.append(f"Datei: {metadata.get('filename', 'N/A')}")
+		display_name = os.path.basename(filepath) if filepath else None
+		if not display_name:
+			# Fallback: ggf. verschachtelt unter metadata['format']['filename']
+			fmt = metadata.get('format', {})
+			display_name = fmt.get('filename') if isinstance(fmt, dict) else None
+		if not display_name:
+			display_name = metadata.get('filename', 'N/A')
+		lines.append(f"Datei: {display_name}")
 		lines.append("-" * 60)
 
 		# Core video properties (always shown)
 		lines.append("\nBASIS-DATEN:")
 		lines.append(f"  • Auflösung: {metadata.get('width', 'N/A')} × {metadata.get('height', 'N/A')} Pixel")
-		lines.append(f"  • Format: {metadata.get('format_name', metadata.get('format', 'N/A').upper())}")
+		_fmt_raw = metadata.get('format_name')
+		if not _fmt_raw:
+			_fmt_val = metadata.get('format', 'N/A')
+			_fmt_raw = _fmt_val.upper() if isinstance(_fmt_val, str) else str(_fmt_val)
+		lines.append(f"  • Format: {_fmt_raw}")
 		lines.append(f"  • Duration: {metadata.get('duration', 'N/A')} Sekunden")
 		lines.append(f"  • Bitrate: {metadata.get('bit_rate', 0):,} B/s" if metadata.get('bit_rate') else "  • Bitrate: N/A")
 
@@ -191,7 +202,11 @@ class CallbacksMixin:
 		lines.append(f"  • Bildrate: {fps:.2f} fps ({metadata.get('fps_num', 0)}/{metadata.get('fps_den', 1)})")
 
 		# Color/format details
-		lines.append(f"  • Pixelformat: {metadata.get('pix_fmt', metadata.get('format', 'N/A')).upper()}")
+		_pix_raw = metadata.get('pix_fmt')
+		if not _pix_raw:
+			_pix_val = metadata.get('format', 'N/A')
+			_pix_raw = _pix_val.upper() if isinstance(_pix_val, str) else str(_pix_val)
+		lines.append(f"  • Pixelformat: {_pix_raw}")
 		lines.append(f"  • Planes: {metadata.get('num_planes', 'N/A')}")
 
 		# Mode-specific additions
@@ -217,7 +232,7 @@ class CallbacksMixin:
 		p = getattr(self, '_last_probe_prefix', 'video')
 
 		if mode in ("streams", "quickcheck", "format"):
-			text_result = self._format_metadata_for_analyst(metadata, mode)
+			text_result = self._format_metadata_for_analyst(metadata, mode, filepath)
 			result_widget = getattr(self.view, f'{p}_result', None)
 			if result_widget:
 				result_widget.setPlainText(text_result)
