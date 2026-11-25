@@ -6,6 +6,7 @@ from pathlib import Path
 from PyQt6.QtCore import QThreadPool, Qt
 from ..worker import DbWorker
 from ..workers.vs_thumbnail_worker import VSThumbnailWorker
+from ..model.base import BASE_DIR
 
 from src.utils.logging_config import set_log_context, clear_log_context
 
@@ -86,6 +87,9 @@ class PresenterBase:
 		self._last_timeline_offset = 0
 		self._last_timeline_zoom = 100
 		self._last_chunk_refresh = 0.0
+		# True, solange die Zeitachsen-Analyse noch nicht geladen wurde
+		# oder sich die Medienliste seit dem letzten Laden geändert hat.
+		self._timeline_dirty = True
 		self.case_path = model.current_case_path
 		if self.case_path:
 			self._init_case_paths()
@@ -138,6 +142,13 @@ class PresenterBase:
 				"Kein Fall aktiv",
 				"Bitte wählen Sie zuerst einen Fall aus oder legen Sie einen neuen Fall an (Tab „Fallübersicht“)."
 			)
+
+		# "Auswertung": Zeitachsen-Analyse beim ersten Aufruf (bzw. nach
+		# Änderung der Medienliste) automatisch starten, damit das Fenster
+		# nicht leer bleibt.
+		if index == 7 and self._timeline_dirty and self.model.current_case:
+			logger.info("Auswertung geöffnet – Zeitachsen-Analyse wird automatisch gestartet.")
+			self.handle_open_timeline()
 
 	def track_tab_change(self, index):
 		name = self.view.get_active_tab_name()
@@ -267,6 +278,7 @@ class PresenterBase:
 
 				self._last_timeline_offset = offset
 				self._last_timeline_zoom = zoom
+				self._timeline_dirty = False
 
 				thumb_dir = self.model.current_case_path / "thumbnails" if self.model.current_case_path else None
 				if thumb_dir and media_files:
@@ -280,7 +292,7 @@ class PresenterBase:
 						self._thumb_worker_case_id = case_id
 						vs_plugin_path = os.environ.get(
 							'VAPOURSYNTH_PLUGIN_PATH',
-							str(Path(__file__).parent.parent.parent / "vapoursynth_plugins" / "bestsource.dll")
+							str(BASE_DIR / "vapoursynth_plugins" / "bestsource.dll")
 						)
 						worker = VSThumbnailWorker(self.model, media_files, thumb_dir, vs_plugin_path)
 						worker.signals.chunk.connect(

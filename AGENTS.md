@@ -141,7 +141,18 @@ Bei großen Dateien bevorzugen:
 
 Keine unnötigen Kopien großer Bild- oder Videodaten.
 
----
+## 6.1 Ordnerstruktur innerhalb von Fällen
+
+Für die Organisation von Falldaten gelten folgende Konventionen (wichtig für Nachvollziehbarkeit und Kundenlieferungen):
+
+* `case_root / "exports"` – **Nur bewusst für Kunden bestimmte Dateien**. Hier landen exportierte Analyse-Ergebnisse (ELA-Bilder, Copy-Move-Maps, Resampling-Figuren, JPEG-Grid-Analysen etc.). Diese Ordner sollten nicht mit UI-Dateien oder generellen Vorschaubildern verunreinigt werden. Wenn Sie Dateien an einen Kunden weitergeben, ist dies der erste Ort, den Sie prüfen.
+
+* `case_root / "thumbnails"` – **Vorschaubilder für die interne Wiedererkennung**. Hier landen generierte Thumbnails (z.B. per FFmpeg/VapourSynth extrahierte Miniaturen), die der schnellen Übersicht im UI dienen. Diese sind keine forensischen Analyse-Ergebnisse und gehören nicht in den `exports`-Ordner. Sie sind Hilfsmittel für die Bedienbarkeit und können separat verwaltet/sicher werden.
+
+*Zwischenablage-Ordner* (optional, nicht in AGENTS.md normiert):
+  * Zwischen temporären Dateien während der Verarbeitung kann jeder beliebige Ort verwendet werden, solange er nicht versehentlich in `exports` oder `thumbnails` landet.
+
+Die Trennung verhindert, dass Analyse-Ergebnisse mit UI-Vorschaubildern vermischt werden, und erleichtert es zu sagen: "Ich habe dem Kunden nur die Dateien aus `exports` geschickt, die Thumbnails sind intern geblieben."
 
 ## 7. Parallelisierung
 

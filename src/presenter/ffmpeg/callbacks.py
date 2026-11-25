@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 
+from ...model.base import BASE_DIR
 from ...worker import (FfprobeWorker, VSMetadataWorker, ElaWorker, CopyMoveWorker,
 					  ResamplingWorker, JpegGridWorker, NoiseEstimatorWorker,
 					  SharpnessDetectorWorker, MotionAnalyzerWorker, VideoStabilizerWorker)
@@ -93,7 +94,7 @@ class CallbacksMixin:
 			self._ffmpeg_log_probe(f"Starte {mode} via VapourSynth (async)...")
 			vs_plugin_path = os.environ.get(
 				'VAPOURSYNTH_PLUGIN_PATH',
-				str(Path(__file__).parent.parent.parent / "vapoursynth_plugins" / "bestsource.dll")
+				str(BASE_DIR / "vapoursynth_plugins" / "bestsource.dll")
 			)
 			worker = VSMetadataWorker(filepath, mode, vs_plugin_path)
 			worker.signals.result.connect(self._on_vsmetadata_result)

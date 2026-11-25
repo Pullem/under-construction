@@ -10,6 +10,10 @@ logger = logging.getLogger(__name__)
 
 class FileOpsMixin:
 	def refresh_ui_list(self):
+		# Medienliste hat sich (potenziell) geändert → Zeitachsen-Analyse
+		# beim nächsten Öffnen der Auswertung neu laden.
+		self._timeline_dirty = True
+
 		def _query(model):
 			conn = model.get_connection()
 			if not conn:

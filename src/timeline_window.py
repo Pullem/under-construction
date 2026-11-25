@@ -141,9 +141,9 @@ class TimelineWidget(QWidget):
 		raw_px_per_sec = 2.0 * (self._zoom_pct / 100.0)
 		lane_h = 80.0
 		ruler_h = 30.0
-		lane_labels_w = 120.0
-		thumb_max_w = 120.0
-		thumb_max_h = lane_h - 8
+		zoom_factor = self._zoom_pct / 100.0
+		thumb_max_w = 120.0 * zoom_factor
+		thumb_max_h = (lane_h - 8) * zoom_factor
 
 		incident_at = self._case_data.get("incident_at")
 		incident_until = self._case_data.get("incident_until")
