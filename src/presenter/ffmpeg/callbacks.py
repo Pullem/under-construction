@@ -21,6 +21,13 @@ class CallbacksMixin:
 		self._copymove_running = False
 
 	def handle_ffprobe_analyse(self, filepath, mode, prefix="video"):
+		# Use the last selected file from the media list if the received
+		# filepath is empty or doesn't exist (filename transfer can get lost
+		# when ffmpeg_input_path gets out of sync with the selected file).
+		if not filepath or not Path(filepath).exists():
+			filepath = getattr(self, '_last_selected_file', filepath)
+			self._ffmpeg_log_probe(f"Dateipfad korrigiert: nutze _last_selected_file={filepath}")
+
 		self._last_probe_path = filepath
 		self._last_probe_prefix = prefix
 
@@ -160,12 +167,57 @@ class CallbacksMixin:
 	def _on_ffprobe_error(self, mode, error_msg):
 		self._ffmpeg_log_probe(f"Fehler bei {mode}: {error_msg}")
 
+	def _format_metadata_for_analyst(self, metadata, mode):
+		"""Format metadata into a clear, human-readable view for forensic analysts.
+
+		Transforms the technical VapourSynth/ffprobe metadata into a scannable
+		summary that highlights key information for image/video forensics.
+		"""
+		lines = []
+		lines.append("=" * 60)
+		lines.append(f"VAPOURSYNTH META-DATA ANALYSE")
+		lines.append(f"Datei: {metadata.get('filename', 'N/A')}")
+		lines.append("-" * 60)
+
+		# Core video properties (always shown)
+		lines.append("\nBASIS-DATEN:")
+		lines.append(f"  • Auflösung: {metadata.get('width', 'N/A')} × {metadata.get('height', 'N/A')} Pixel")
+		lines.append(f"  • Format: {metadata.get('format_name', metadata.get('format', 'N/A').upper())}")
+		lines.append(f"  • Duration: {metadata.get('duration', 'N/A')} Sekunden")
+		lines.append(f"  • Bitrate: {metadata.get('bit_rate', 0):,} B/s" if metadata.get('bit_rate') else "  • Bitrate: N/A")
+
+		# FPS information
+		fps = metadata.get('fps', 0)
+		lines.append(f"  • Bildrate: {fps:.2f} fps ({metadata.get('fps_num', 0)}/{metadata.get('fps_den', 1)})")
+
+		# Color/format details
+		lines.append(f"  • Pixelformat: {metadata.get('pix_fmt', metadata.get('format', 'N/A')).upper()}")
+		lines.append(f"  • Planes: {metadata.get('num_planes', 'N/A')}")
+
+		# Mode-specific additions
+		if mode == 'streams':
+			lines.append("\nSTREAM-INFO (Video-Stream):")
+			lines.append(f"  • Typ: {metadata.get('streams', [{}])[0].get('codec_type', 'N/A')}")
+			lines.append(f"  • Framerate: {metadata.get('streams', [{}])[0].get('r_frame_rate', 'N/A')}")
+
+		if mode in ('quickcheck', 'format', 'streams'):
+			lines.append("\nTECHNISCHE ANGABEN (Detail):")
+			lines.append(f"  • Color Family: {metadata.get('color_family', 'N/A')}")
+			lines.append(f"  • Sample Type: {metadata.get('sample_type', 'N/A')}")
+			lines.append(f"  • Bit Depth: {metadata.get('bits_per_sample', 'N/A')} Bit")
+
+		lines.append("\n" + "=" * 60)
+		lines.append("Hinweis: Dies ist eine vereinfachte Darstellung für die menschliche")
+		lines.append("Analyse. Detaillierte technische Parameter stehen im Roh-JSON zur Verfügung.")
+
+		return "\n".join(lines)
+
 	def _on_vsmetadata_result(self, filepath, mode, metadata):
 		self._ffmpeg_log_probe(f"VapourSynth {mode} abgeschlossen.")
 		p = getattr(self, '_last_probe_prefix', 'video')
 
 		if mode in ("streams", "quickcheck", "format"):
-			text_result = json.dumps(metadata, indent=2, ensure_ascii=False)
+			text_result = self._format_metadata_for_analyst(metadata, mode)
 			result_widget = getattr(self.view, f'{p}_result', None)
 			if result_widget:
 				result_widget.setPlainText(text_result)
