@@ -113,10 +113,11 @@ class FFmpegControlsMixin:
 
 	def set_ffmpeg_file(self, path):
 		self.ffmpeg_input_path = path
+		basename = os.path.basename(path)
 		for p in ("video", "bild"):
 			fl = getattr(self, f"{p}_file_label", None)
 			if fl:
-				fl.setText(os.path.basename(path))
+				fl.setText(basename)
 				fl.setToolTip(path)
 			lg = getattr(self, f"{p}_log", None)
 			if lg:
@@ -124,6 +125,13 @@ class FFmpegControlsMixin:
 			pr = getattr(self, f"{p}_progress", None)
 			if pr:
 				pr.setValue(0)
+		# Auch die Datei-Label beider Bilder-Subtabs (Analysen + Processing)
+		# synchronisieren, sodass der Name unabhängig vom aktiven Subtab angezeigt wird.
+		for attr in ("bild_analyses_file_label", "bild_processing_file_label"):
+			fl = getattr(self, attr, None)
+			if fl:
+				fl.setText(basename)
+				fl.setToolTip(path)
 		self._update_ffmpeg_encoded_date(path)
 		try:
 			self.set_hex_file(path)

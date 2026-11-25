@@ -143,7 +143,7 @@ class TimelineWidget(QWidget):
 		ruler_h = 30.0
 		zoom_factor = self._zoom_pct / 100.0
 		thumb_max_w = 120.0 * zoom_factor
-	lane_labels_w = 120.0  # Breite für Lanbetitel links
+		lane_labels_w = 120.0  # Breite fÃ¼r Lanentitel links
 		thumb_max_h = (lane_h - 8) * zoom_factor
 
 		incident_at = self._case_data.get("incident_at")
