@@ -124,6 +124,12 @@ class MainWindowMixin(DarkStyleMixin, FFmpegControlsMixin, SettingsMixin,
 			self.nav_tree.topLevelItem(0))
 		self.content_stack.setCurrentIndex(0)
 
+	def _on_ela_quality_changed(self, index):
+		"""Wird aufgerufen, wenn der ELA-Qualitäts-Regler geändert wird."""
+		# Qualität aus dem ComboBox-Index ermitteln und speichern
+		quality_map = {0: 70, 1: 75, 2: 80, 3: 85, 4: 90, 5: 95}
+		self._ela_quality = quality_map.get(index, 85)
+
 	def _on_tree_item_clicked(self, item, column):
 		"""Wechselt zur Stack-Seite des geklickten Tree-Items."""
 		stack_idx = item.data(0, Qt.ItemDataRole.UserRole)

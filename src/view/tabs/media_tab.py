@@ -377,6 +377,42 @@ def build_bilder_analyses_tab(view):
 	setattr(view, "bild_sensitivity", sens)
 	analysis_toolbar.addWidget(sens)
 
+	analysis_toolbar.addWidget(QLabel("ELA-Qualität:"))
+	ela_quality = QComboBox()
+	ela_quality.addItem("70", 70)
+	ela_quality.addItem("75", 75)
+	ela_quality.addItem("80", 80)
+	ela_quality.addItem("85", 85)
+	ela_quality.addItem("90", 90)
+	ela_quality.addItem("95", 95)
+	# Initiale Qualität laden aus Modell-Konfiguration (falls verfügbar)
+	# Modell ist ggf. noch nicht an View gebunden, daher Fallback nutzen
+	try:
+		from src.model.base import BASE_DIR
+		from pathlib import Path
+		import configparser
+		ini_path = Path(BASE_DIR).parent / "config" / "project.ini"
+		if ini_path.exists():
+			cfg = configparser.ConfigParser()
+			cfg.read(ini_path)
+			if cfg.has_section("settings") and cfg.has_option("settings", "ela_quality"):
+				model_quality = int(cfg.get("settings", "ela_quality").strip())
+				if model_quality < 70:
+					model_quality = 70
+				elif model_quality > 95:
+					model_quality = 95
+				index = max(0, min(5, (model_quality - 70) // 5))
+				ela_quality.setCurrentIndex(index)
+			else:
+				ela_quality.setCurrentIndex(3)  # Fallback: 85
+		else:
+			ela_quality.setCurrentIndex(3)  # Fallback: 85
+	except Exception:
+		ela_quality.setCurrentIndex(3)  # Fallback: 85
+	ela_quality.currentIndexChanged.connect(view._on_ela_quality_changed)
+	setattr(view, "bild_ela_quality", ela_quality)
+	analysis_toolbar.addWidget(ela_quality)
+
 	analyses_inner.addLayout(analysis_toolbar)
 	layout.addWidget(analyses_group)
 

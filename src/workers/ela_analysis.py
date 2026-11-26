@@ -17,7 +17,7 @@ class ElaWorkerSignals(QObject):
 
 
 class ElaWorker(QRunnable):
-	def __init__(self, filepath, exports_dir, quality=95):
+	def __init__(self, filepath, exports_dir, quality=85):
 		super().__init__()
 		self.filepath = filepath
 		self.exports_dir = Path(exports_dir)

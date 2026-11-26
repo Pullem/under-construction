@@ -88,6 +88,20 @@ class ConfigDBMixin:
 		if case_root:
 			self.proj_config["settings"]["case_root"] = str(Path(case_root).resolve())
 
+
+		# ELA-Qualität speichern (Standard: 85, Bereich 70-95)
+		ela_quality = self.proj_config.get("settings", "ela_quality", fallback="85").strip()
+		if ela_quality:
+			try:
+				q = int(ela_quality)
+				if q < 70:
+					q = 70
+				elif q > 95:
+					q = 95
+				self.proj_config["settings"]["ela_quality"] = str(q)
+			except ValueError:
+				self.proj_config["settings"]["ela_quality"] = "85"
+
 	# Keys, die ConfigValidator in [database] verlangt
 	DB_REQUIRED_KEYS = ("host", "user", "password", "port", "database")
 

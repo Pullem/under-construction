@@ -35,7 +35,28 @@ class CallbacksMixin:
 			self._ffmpeg_log_probe(f"Starte {mode} (async)...")
 			exports_dir = Path(self.model.current_case_path) / "exports" if self.model.current_case_path else Path()
 			exports_dir.mkdir(parents=True, exist_ok=True)
-			worker = ElaWorker(filepath, str(exports_dir))
+			# Qualität: Modell-Konfiguration > UI-Regler > Standard
+			model_quality = self.model.proj_config.get("settings", "ela_quality", fallback="85").strip()
+			try:
+				quality = int(model_quality) if model_quality else 85
+				if quality < 70:
+					quality = 70
+				elif quality > 95:
+					quality = 95
+			except ValueError:
+				quality = 85
+			# UI-Regler überschreiben falls vorhanden
+			quality_from_view = getattr(self.view, "bild_ela_quality", None)
+			if quality_from_view is not None:
+				ui_quality = quality_from_view.currentData()
+				if ui_quality is not None:
+					try:
+						ui_q = int(ui_quality)
+						if 70 <= ui_q <= 95:
+							quality = ui_q
+					except ValueError:
+						pass
+			worker = ElaWorker(filepath, str(exports_dir), quality=quality)
 			worker.signals.result.connect(self._on_ela_result)
 			worker.signals.error.connect(self._on_ela_error)
 			self.threadpool.start(worker)

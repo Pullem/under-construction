@@ -229,6 +229,9 @@ class PresenterBase:
 	def handle_save_settings(self, case_root):
 		# case_root speichern, danach dessen Unterordner (z. B. Test-Signale) anlegen
 		self.model.set_case_root(case_root)
+		# ELA-Qualität aus der Konfiguration sicherstellen
+		if not self.model.proj_config.has_option("settings", "ela_quality"):
+			self.model.proj_config["settings"]["ela_quality"] = "85"
 		self._refresh_settings()
 		from PyQt6.QtWidgets import QMessageBox
 		QMessageBox.information(self.view, "Gespeichert", "Einstellungen wurden gespeichert.")
